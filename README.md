@@ -144,7 +144,10 @@ gunicorn web_dashboard_clean:app
 - `templates/`: HTML templates for Flask.
 
 ---
-<!-- GitAds-Verify: HXXYC9E7544TMKWN6RXD5JU7ENCMLE4G -->
+## GitAds Sponsored
+[![Sponsored by GitAds](https://gitads.dev/v1/ad-serve?source=rafalw3bcraft/amazonaffiliatedbot@github)](https://gitads.dev/v1/ad-track?source=rafalw3bcraft/amazonaffiliatedbot@github)
+
+
 ## License
 
 MIT License
