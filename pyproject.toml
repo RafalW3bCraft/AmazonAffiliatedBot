@@ -1,7 +1,7 @@
  [project]
 name = "Amazon Affiliated bot"
 version = "0.1.0"
-description = "Add your description here"
+description = "Amazon affiliate link management, automation, and analytics"
 authors = [
     { name = "RafalW3bCraft" }
 ]
