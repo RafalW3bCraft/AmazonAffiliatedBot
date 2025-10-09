@@ -5,7 +5,7 @@ Used as fallback when PostgreSQL is not available.
 
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from models import Deal, User, DealStats, Product, ClickEvent
 
 logger = logging.getLogger(__name__)
@@ -33,18 +33,15 @@ class SimpleDatabaseManager:
         """Close database (no-op for in-memory)."""
         logger.info("📊 Simple database closed")
     
-    # User management methods
     
     async def add_user(self, user_id: int, username: str = None, 
                       first_name: str = None, last_name: str = None) -> User:
         """Add or update user."""
         if user_id in self.users:
-            # Update last seen
             user = self.users[user_id]
             user.last_seen = datetime.utcnow()
             return user
         else:
-            # Create new user
             user = User(
                 id=self.next_user_id,
                 user_id=user_id,
@@ -85,7 +82,6 @@ class SimpleDatabaseManager:
             if user.is_active and user.last_seen and user.last_seen >= cutoff_date
         ]
     
-    # Deal management methods
     
     async def add_deal(self, product: Product, affiliate_link: str, 
                       source: str = "scraper", content_style: str = "simple") -> Deal:
@@ -131,7 +127,6 @@ class SimpleDatabaseManager:
         """Get recent deals."""
         cutoff_time = datetime.utcnow() - timedelta(hours=hours)
         
-        # Filter deals
         filtered_deals = [
             deal for deal in self.deals.values()
             if (deal.is_active and 
@@ -139,7 +134,6 @@ class SimpleDatabaseManager:
                 (not category or category == 'all' or deal.category == category))
         ]
         
-        # Sort by posted time (newest first) and limit
         filtered_deals.sort(key=lambda x: x.posted_at or datetime.min, reverse=True)
         return filtered_deals[:limit]
     
@@ -170,35 +164,29 @@ class SimpleDatabaseManager:
         logger.info(f"🧹 Cleaned up {len(old_deal_ids)} old deals")
         return len(old_deal_ids)
     
-    # Analytics and statistics
     
     async def get_deal_stats(self) -> DealStats:
         """Get comprehensive deal statistics."""
         active_deals = [deal for deal in self.deals.values() if deal.is_active]
         
-        # Basic stats
         total_deals = len(active_deals)
         total_clicks = sum(deal.clicks for deal in active_deals)
         total_conversions = sum(deal.conversions for deal in active_deals)
         total_earnings = sum(deal.earnings for deal in active_deals)
         
-        # Recent deals (last 24 hours)
         cutoff_time = datetime.utcnow() - timedelta(hours=24)
         recent_deals = len([
             deal for deal in active_deals
             if deal.posted_at and deal.posted_at >= cutoff_time
         ])
         
-        # Active users (last 30 days)
         active_users = len(await self.get_active_users(30))
         
-        # Category stats
         category_stats = {}
         for deal in active_deals:
             category = deal.category or 'unknown'
             category_stats[category] = category_stats.get(category, 0) + 1
         
-        # Source stats
         source_stats = {}
         for deal in active_deals:
             source = deal.source or 'unknown'
@@ -232,7 +220,6 @@ class SimpleDatabaseManager:
         self.click_events.append(click_event)
         self.next_click_id += 1
         
-        # Update deal click count
         if deal_id in self.deals:
             self.deals[deal_id].clicks += 1
             self.deals[deal_id].updated_at = datetime.utcnow()

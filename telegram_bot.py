@@ -1,11 +1,6 @@
-"""
-Telegram bot implementation for Amazon Affiliate Deal Bot.
-Uses aiogram 3.x for modern async Telegram bot functionality.
-"""
 import asyncio
 import logging
 from typing import Optional, Union
-from datetime import datetime
 
 try:
     from aiogram import Bot, Dispatcher, types, F
@@ -15,7 +10,6 @@ try:
     AIOGRAM_AVAILABLE = True
 except ImportError:
     AIOGRAM_AVAILABLE = False
-    # Create dummy classes for type safety when aiogram is not available
     class Bot: pass
     class Dispatcher: pass
     class InlineKeyboardMarkup: pass
@@ -28,16 +22,13 @@ from database import DatabaseManager
 from database_simple import SimpleDatabaseManager
 from content_generator import ContentGenerator
 from scraper import DealScraper
-from models import Deal, User
 
 logger = logging.getLogger(__name__)
 
 
 class AffiliateBot:
-    """Main Telegram bot class for Amazon affiliate deals."""
     
     def __init__(self, config: Config):
-        """Initialize the bot."""
         if not AIOGRAM_AVAILABLE:
             raise ImportError("aiogram is required for Telegram bot functionality")
         
@@ -48,41 +39,32 @@ class AffiliateBot:
         self.content_generator: Optional[ContentGenerator] = None
         self.scraper: Optional[DealScraper] = None
         
-        # Initialize components
         self._initialize_components()
     
     def _initialize_components(self):
-        """Initialize bot components."""
         if not self.config.bot_configured:
             raise ValueError("Bot token not configured")
         
-        # Initialize bot and dispatcher
         self.bot = Bot(token=self.config.BOT_TOKEN)
         self.dp = Dispatcher()
         
-        # Initialize database manager
         if self.config.database_configured:
             self.db_manager = DatabaseManager(self.config.DATABASE_URL)
         else:
             self.db_manager = SimpleDatabaseManager()
         
-        # Initialize content generator
         self.content_generator = ContentGenerator(self.config.OPENAI_API_KEY)
         
-        # Initialize scraper
         self.scraper = DealScraper(
             max_deals_per_source=self.config.MAX_DEALS_PER_SOURCE,
             request_timeout=self.config.REQUEST_TIMEOUT
         )
         
-        # Register handlers
         self._register_handlers()
         
         logger.info("🤖 Bot components initialized")
     
     def _register_handlers(self):
-        """Register message and command handlers."""
-        # Command handlers
         self.dp.message.register(self.cmd_start, Command(commands=['start']))
         self.dp.message.register(self.cmd_help, Command(commands=['help']))
         self.dp.message.register(self.cmd_deals, Command(commands=['deals']))
@@ -96,23 +78,19 @@ class AffiliateBot:
         self.dp.message.register(self.cmd_beauty, Command(commands=['beauty']))
         self.dp.message.register(self.cmd_books, Command(commands=['books']))
         
-        # Admin commands
         self.dp.message.register(self.cmd_admin, Command(commands=['admin']))
         self.dp.message.register(self.cmd_add_deal, Command(commands=['add_deal']))
         self.dp.message.register(self.cmd_broadcast, Command(commands=['broadcast']))
         
-        # Callback query handlers
         self.dp.callback_query.register(self.handle_category_selection, F.data.startswith('category:'))
         self.dp.callback_query.register(self.handle_region_selection, F.data.startswith('region:'))
         self.dp.callback_query.register(self.handle_deal_action, F.data.startswith('deal:'))
         
-        # Message handlers
         self.dp.message.register(self.handle_text_message, F.text)
         
         logger.info("🎯 Bot handlers registered")
     
     async def initialize(self):
-        """Initialize all bot services."""
         try:
             await self.db_manager.initialize()
             await self.content_generator.initialize()
@@ -125,7 +103,6 @@ class AffiliateBot:
             raise
     
     async def start_polling(self):
-        """Start bot polling."""
         try:
             await self.initialize()
             logger.info("🤖 Starting Telegram bot polling...")
@@ -138,7 +115,6 @@ class AffiliateBot:
             await self.cleanup()
     
     async def cleanup(self):
-        """Cleanup bot resources."""
         try:
             if self.scraper:
                 await self.scraper.close()
@@ -154,16 +130,13 @@ class AffiliateBot:
         except Exception as e:
             logger.error(f"Bot cleanup error: {e}")
     
-    # Command Handlers
     
-    async def cmd_start(self, message: types.Message):
-        """Handle /start command."""
+    async def cmd_start(self, message):
         try:
             user = message.from_user
             if not user:
                 return
             
-            # Add user to database
             await self.db_manager.add_user(
                 user_id=user.id,
                 username=user.username,
@@ -209,8 +182,7 @@ Ready to save money? Use /deals to see current offers!
             logger.error(f"Error in start command: {e}")
             await message.answer("Welcome! I'll help you find the best Amazon deals! 🛍️")
     
-    async def cmd_help(self, message: types.Message):
-        """Handle /help command."""
+    async def cmd_help(self, message):
         try:
             help_text = """🤖 **Deal Bot Help**
 
@@ -245,8 +217,7 @@ Need help? Just ask!"""
             logger.error(f"Error in /help command: {e}")
             await message.reply("Here are the available commands: /start /deals /category /region /stats /help")
     
-    async def cmd_deals(self, message: types.Message):
-        """Handle /deals command."""
+    async def cmd_deals(self, message):
         try:
             user_id = message.from_user.id
             
@@ -296,8 +267,7 @@ Need help? Just ask!"""
             logger.error(f"Error in deals command: {e}")
             await message.answer("❌ Error loading deals. Please try again later.")
     
-    async def _get_category_deals(self, message: types.Message, category: str, category_emoji: str):
-        """Helper method to get deals for a specific category with link validation."""
+    async def _get_category_deals(self, message, category: str, category_emoji: str):
         try:
             from link_validator import LinkValidator
             
@@ -347,32 +317,25 @@ Need help? Just ask!"""
             logger.error(f"Error in {category} deals command: {e}")
             await message.answer(f"❌ Error loading {category} deals. Please try again later.")
     
-    async def cmd_electronics(self, message: types.Message):
-        """Handle /electronics command."""
+    async def cmd_electronics(self, message):
         await self._get_category_deals(message, "electronics", "📱")
     
-    async def cmd_home(self, message: types.Message):
-        """Handle /home command."""
+    async def cmd_home(self, message):
         await self._get_category_deals(message, "home", "🏠")
     
-    async def cmd_fashion(self, message: types.Message):
-        """Handle /fashion command."""
+    async def cmd_fashion(self, message):
         await self._get_category_deals(message, "fashion", "👕")
     
-    async def cmd_sports(self, message: types.Message):
-        """Handle /sports command."""
+    async def cmd_sports(self, message):
         await self._get_category_deals(message, "sports", "⚽")
     
-    async def cmd_beauty(self, message: types.Message):
-        """Handle /beauty command."""
+    async def cmd_beauty(self, message):
         await self._get_category_deals(message, "beauty", "💄")
     
-    async def cmd_books(self, message: types.Message):
-        """Handle /books command."""
+    async def cmd_books(self, message):
         await self._get_category_deals(message, "books", "📚")
     
-    async def cmd_category(self, message: types.Message):
-        """Handle /category command."""
+    async def cmd_category(self, message):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📱 Electronics", callback_data="category:electronics"),
              InlineKeyboardButton(text="🏠 Home & Kitchen", callback_data="category:home")],
@@ -393,8 +356,7 @@ Need help? Just ask!"""
             parse_mode="Markdown"
         )
     
-    async def cmd_region(self, message: types.Message):
-        """Handle /region command."""
+    async def cmd_region(self, message):
         try:
             user_id = message.from_user.id
             
@@ -433,8 +395,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
             logger.error(f"Error in region command: {e}")
             await message.answer("❌ Error loading region settings. Please try again later.")
     
-    async def cmd_stats(self, message: types.Message):
-        """Handle /stats command."""
+    async def cmd_stats(self, message):
         try:
             if not self.db_manager:
                 await message.reply("Database not available. Please try again later.")
@@ -474,8 +435,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
             logger.error(f"Error in stats command: {e}")
             await message.reply("Error loading statistics. Please try again later.")
     
-    async def cmd_admin(self, message: types.Message):
-        """Handle /admin command (admin only)."""
+    async def cmd_admin(self, message):
         # Simple admin check - in production, use proper admin verification
         user_id = message.from_user.id
         admin_ids = [int(x) for x in str(self.config.ADMIN_USER_IDS or "").split(",") if x.isdigit()]
@@ -506,8 +466,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
         
         await message.answer(admin_text, reply_markup=keyboard, parse_mode="Markdown")
     
-    async def cmd_add_deal(self, message: types.Message):
-        """Handle /add_deal command."""
+    async def cmd_add_deal(self, message):
         # Extract URL from message
         text_parts = message.text.split(maxsplit=1)
         if len(text_parts) < 2:
@@ -549,8 +508,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
             logger.error(f"Error adding manual deal: {e}")
             await message.answer("❌ Error adding deal. Please check the URL and try again.")
     
-    async def cmd_broadcast(self, message: types.Message):
-        """Handle /broadcast command (admin only)."""
+    async def cmd_broadcast(self, message):
         # Simple admin check
         user_id = message.from_user.id
         admin_ids = [int(x) for x in str(self.config.ADMIN_USER_IDS or "").split(",") if x.isdigit()]
@@ -596,8 +554,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
     
     # Callback Query Handlers
     
-    async def handle_category_selection(self, callback_query: types.CallbackQuery):
-        """Handle category selection."""
+    async def handle_category_selection(self, callback_query):
         try:
             category = callback_query.data.split(":", 1)[1]
             user_id = callback_query.from_user.id
@@ -620,8 +577,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
             logger.error(f"Error handling category selection: {e}")
             await callback_query.answer("❌ Error updating category", show_alert=True)
     
-    async def handle_region_selection(self, callback_query: types.CallbackQuery):
-        """Handle region selection."""
+    async def handle_region_selection(self, callback_query):
         try:
             region = callback_query.data.split(":", 1)[1]
             user_id = callback_query.from_user.id
@@ -644,8 +600,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
             logger.error(f"Error handling region selection: {e}")
             await callback_query.answer("❌ Error updating region", show_alert=True)
     
-    async def handle_deal_action(self, callback_query: types.CallbackQuery):
-        """Handle deal actions (like, share, etc.)."""
+    async def handle_deal_action(self, callback_query):
         try:
             action_data = callback_query.data.split(":", 2)
             action = action_data[1]
@@ -666,8 +621,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
             logger.error(f"Error handling deal action: {e}")
             await callback_query.answer("❌ Error processing action", show_alert=True)
     
-    async def handle_text_message(self, message: types.Message):
-        """Handle regular text messages."""
+    async def handle_text_message(self, message):
         text = message.text.lower()
         
         # Simple command recognition
@@ -692,7 +646,6 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
     # Utility methods
     
     async def post_deals(self) -> int:
-        """Post new deals (called by scheduler)."""
         try:
             # Get new deals from scraper
             deals = await self.scraper.scrape_real_amazon_deals()

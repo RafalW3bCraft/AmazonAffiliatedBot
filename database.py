@@ -1,11 +1,7 @@
-"""
-PostgreSQL database manager for Amazon Affiliate Deal Bot.
-"""
 
-import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 import asyncpg
 from models import Deal, User, DealStats, Product, ClickEvent
 
@@ -13,17 +9,13 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
-    """PostgreSQL database manager with async support."""
     
     def __init__(self, database_url: str):
-        """Initialize database manager."""
         self.database_url = database_url
         self.pool: Optional[asyncpg.Pool] = None
         
     async def initialize(self):
-        """Initialize database connection pool and create tables."""
         try:
-            # Create connection pool with SSL configuration for Neon
             self.pool = await asyncpg.create_pool(
                 self.database_url,
                 min_size=1,
@@ -32,7 +24,6 @@ class DatabaseManager:
                 ssl='require'
             )
             
-            # Create tables
             await self._create_tables()
             
             logger.info("✅ PostgreSQL database initialized")
@@ -42,15 +33,12 @@ class DatabaseManager:
             raise
     
     async def close(self):
-        """Close database connection pool."""
         if self.pool:
             await self.pool.close()
             logger.info("📊 Database connections closed")
     
     async def _create_tables(self):
-        """Create database tables if they don't exist."""
         async with self.pool.acquire() as conn:
-            # Users table
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
@@ -70,7 +58,6 @@ class DatabaseManager:
                 )
             """)
             
-            # Deals table
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS deals (
                     id SERIAL PRIMARY KEY,
@@ -97,7 +84,6 @@ class DatabaseManager:
                 )
             """)
             
-            # Click events table
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS click_events (
                     id SERIAL PRIMARY KEY,
@@ -110,7 +96,6 @@ class DatabaseManager:
                 )
             """)
             
-            # Create indexes for better performance
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_deals_asin ON deals(asin)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_deals_posted_at ON deals(posted_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_deals_category ON deals(category)")
@@ -119,26 +104,22 @@ class DatabaseManager:
             
             logger.info("📋 Database tables created/verified")
     
-    # User management methods
     
     async def add_user(self, user_id: int, username: str = None, 
                       first_name: str = None, last_name: str = None) -> User:
         """Add or update user in database."""
         async with self.pool.acquire() as conn:
-            # Check if user exists
             existing = await conn.fetchrow(
                 "SELECT * FROM users WHERE user_id = $1", user_id
             )
             
             if existing:
-                # Update last seen
                 await conn.execute(
                     "UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE user_id = $1",
                     user_id
                 )
                 return self._row_to_user(existing)
             else:
-                # Insert new user
                 row = await conn.fetchrow("""
                     INSERT INTO users (user_id, username, first_name, last_name)
                     VALUES ($1, $2, $3, $4)
@@ -149,7 +130,6 @@ class DatabaseManager:
                 return self._row_to_user(row)
     
     async def get_user(self, user_id: int) -> Optional[User]:
-        """Get user by Telegram user ID."""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT * FROM users WHERE user_id = $1", user_id
@@ -185,7 +165,6 @@ class DatabaseManager:
             return False
     
     async def get_active_users(self, days: int = 30) -> List[User]:
-        """Get users active in the last N days."""
         async with self.pool.acquire() as conn:
             cutoff_date = datetime.utcnow() - timedelta(days=days)
             rows = await conn.fetch("""
@@ -196,7 +175,6 @@ class DatabaseManager:
             
             return [self._row_to_user(row) for row in rows]
     
-    # Deal management methods
     
     async def add_deal(self, product: Product, affiliate_link: str, 
                       source: str = "scraper", content_style: str = "simple") -> Deal:
@@ -220,7 +198,6 @@ class DatabaseManager:
             return self._row_to_deal(row)
     
     async def get_deal(self, deal_id: int) -> Optional[Deal]:
-        """Get deal by ID."""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT * FROM deals WHERE id = $1", deal_id
@@ -228,7 +205,6 @@ class DatabaseManager:
             return self._row_to_deal(row) if row else None
     
     async def get_deal_by_asin(self, asin: str) -> Optional[Deal]:
-        """Get deal by ASIN."""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT * FROM deals WHERE asin = $1 ORDER BY posted_at DESC LIMIT 1", 
@@ -275,24 +251,19 @@ class DatabaseManager:
             return result != "UPDATE 0"
     
     async def cleanup_old_deals(self, days: int = 30) -> int:
-        """Clean up old deals."""
         async with self.pool.acquire() as conn:
             cutoff_date = datetime.utcnow() - timedelta(days=days)
             result = await conn.execute(
                 "DELETE FROM deals WHERE posted_at < $1", cutoff_date
             )
             
-            # Extract number of deleted rows
             deleted_count = int(result.split()[-1]) if result.startswith("DELETE") else 0
             logger.info(f"🧹 Cleaned up {deleted_count} old deals")
             return deleted_count
     
-    # Analytics and statistics
     
     async def get_deal_stats(self) -> DealStats:
-        """Get comprehensive deal statistics."""
         async with self.pool.acquire() as conn:
-            # Basic stats
             basic_stats = await conn.fetchrow("""
                 SELECT 
                     COUNT(*) as total_deals,
@@ -303,21 +274,18 @@ class DatabaseManager:
                 WHERE is_active = TRUE
             """)
             
-            # Recent deals (last 24 hours)
             recent_count = await conn.fetchval("""
                 SELECT COUNT(*) FROM deals 
                 WHERE is_active = TRUE 
                 AND posted_at >= NOW() - INTERVAL '24 hours'
             """)
             
-            # Active users (last 30 days)
             active_users = await conn.fetchval("""
                 SELECT COUNT(*) FROM users 
                 WHERE is_active = TRUE 
                 AND last_seen >= NOW() - INTERVAL '30 days'
             """)
             
-            # Category stats
             category_rows = await conn.fetch("""
                 SELECT category, COUNT(*) as count
                 FROM deals 
@@ -326,7 +294,6 @@ class DatabaseManager:
                 ORDER BY count DESC
             """)
             
-            # Source stats
             source_rows = await conn.fetch("""
                 SELECT source, COUNT(*) as count
                 FROM deals 
@@ -357,17 +324,14 @@ class DatabaseManager:
                 RETURNING *
             """, deal_id, user_id, ip_address, user_agent, referrer)
             
-            # Update deal click count
             await conn.execute(
                 "UPDATE deals SET clicks = clicks + 1 WHERE id = $1", deal_id
             )
             
             return self._row_to_click_event(row)
     
-    # Helper methods for converting database rows to models
     
     def _row_to_user(self, row) -> User:
-        """Convert database row to User model."""
         return User(
             id=row['id'],
             user_id=row['user_id'],
@@ -386,7 +350,6 @@ class DatabaseManager:
         )
     
     def _row_to_deal(self, row) -> Deal:
-        """Convert database row to Deal model."""
         return Deal(
             id=row['id'],
             title=row['title'],
@@ -412,7 +375,6 @@ class DatabaseManager:
         )
     
     def _row_to_click_event(self, row) -> ClickEvent:
-        """Convert database row to ClickEvent model."""
         return ClickEvent(
             id=row['id'],
             deal_id=row['deal_id'],
