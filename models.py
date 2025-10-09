@@ -1,7 +1,3 @@
-"""
-Database models for Amazon Affiliate Deal Bot.
-"""
-
 from datetime import datetime
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
@@ -12,7 +8,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Product:
-    """Product model representing an Amazon product."""
     title: str
     price: str
     discount: str
@@ -26,11 +21,9 @@ class Product:
     features: list = field(default_factory=list)
     
     def is_valid(self) -> bool:
-        """Check if product has minimum required data."""
         return bool(self.title and self.price and self.link)
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
         return {
             'title': self.title,
             'price': self.price,
@@ -48,7 +41,6 @@ class Product:
 
 @dataclass
 class Deal:
-    """Deal model for database storage."""
     id: Optional[int] = None
     title: str = ""
     price: str = ""
@@ -72,7 +64,6 @@ class Deal:
     is_active: bool = True
     
     def to_product(self) -> Product:
-        """Convert deal to product model."""
         return Product(
             title=self.title,
             price=self.price,
@@ -87,7 +78,6 @@ class Deal:
         )
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
         return {
             'id': self.id,
             'title': self.title,
@@ -115,7 +105,6 @@ class Deal:
 
 @dataclass
 class User:
-    """User model for Telegram users."""
     id: Optional[int] = None
     user_id: int = 0
     username: Optional[str] = None
@@ -132,7 +121,6 @@ class User:
     total_earnings: float = 0.0
     
     def display_name(self) -> str:
-        """Get display name for user."""
         if self.first_name:
             return self.first_name
         elif self.username:
@@ -141,7 +129,6 @@ class User:
             return f"User{self.user_id}"
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
         return {
             'id': self.id,
             'user_id': self.user_id,
@@ -163,7 +150,6 @@ class User:
 
 @dataclass
 class DealStats:
-    """Statistics model for deals and performance."""
     total_deals: int = 0
     recent_deals: int = 0
     total_clicks: int = 0
@@ -174,25 +160,21 @@ class DealStats:
     source_stats: Dict[str, int] = field(default_factory=dict)
     
     def conversion_rate(self) -> float:
-        """Calculate conversion rate percentage."""
         if self.total_clicks == 0:
             return 0.0
         return (self.total_conversions / self.total_clicks) * 100
     
     def average_earnings_per_deal(self) -> float:
-        """Calculate average earnings per deal."""
         if self.total_deals == 0:
             return 0.0
         return self.total_earnings / self.total_deals
     
     def average_earnings_per_click(self) -> float:
-        """Calculate average earnings per click."""
         if self.total_clicks == 0:
             return 0.0
         return self.total_earnings / self.total_clicks
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
         return {
             'total_deals': self.total_deals,
             'recent_deals': self.recent_deals,
@@ -210,7 +192,6 @@ class DealStats:
 
 @dataclass
 class ClickEvent:
-    """Click tracking event model."""
     id: Optional[int] = None
     deal_id: int = 0
     user_id: int = 0
@@ -220,7 +201,6 @@ class ClickEvent:
     referrer: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
         return {
             'id': self.id,
             'deal_id': self.deal_id,
@@ -232,7 +212,6 @@ class ClickEvent:
         }
 
 
-# Category mapping for better organization
 CATEGORY_MAPPING = {
     'electronics': '📱 Electronics',
     'home': '🏠 Home & Kitchen',
@@ -256,7 +235,6 @@ CATEGORY_MAPPING = {
     'grocery': '🛒 Grocery & Food'
 }
 
-# Content style options
 CONTENT_STYLES = {
     'simple': 'Simple and direct',
     'enthusiastic': 'Enthusiastic and engaging',
@@ -265,7 +243,6 @@ CONTENT_STYLES = {
     'urgent': 'Urgent and time-sensitive'
 }
 
-# Region options
 SUPPORTED_REGIONS = {
     'US': '🇺🇸 United States',
     'UK': '🇬🇧 United Kingdom',

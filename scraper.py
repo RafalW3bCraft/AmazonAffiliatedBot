@@ -7,10 +7,8 @@ import asyncio
 import logging
 import aiohttp
 import re
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from typing import List, Optional
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
 from models import Product
 
 logger = logging.getLogger(__name__)
@@ -24,16 +22,12 @@ class DealScraper:
         self.max_deals_per_source = max_deals_per_source
         self.request_timeout = request_timeout
         self.session = None
-        
-        # Real Amazon deal sources
         self.amazon_sources = [
             "https://www.amazon.com/gp/goldbox",
             "https://www.amazon.com/deals",
             "https://www.amazon.com/s?k=deals&ref=sr_pg_1",
             "https://www.amazon.com/gp/bestsellers"
         ]
-        
-        # Headers to mimic real browser requests with better anti-bot protection
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -46,9 +40,7 @@ class DealScraper:
             'Sec-Fetch-Site': 'none',
             'Cache-Control': 'max-age=0',
         }
-        
-        # Rate limiting delay to avoid being blocked
-        self.rate_limit_delay = 5  # seconds between requests
+        self.rate_limit_delay = 5
         
     async def initialize(self):
         """Initialize async session."""
@@ -77,14 +69,12 @@ class DealScraper:
                 deals = await self._scrape_source(source_url)
                 all_deals.extend(deals[:self.max_deals_per_source])
                 
-                # Increased rate limiting to avoid being blocked
                 await asyncio.sleep(self.rate_limit_delay)
                 
             except Exception as e:
                 logger.warning(f"Failed to scrape {source_url}: {e}")
                 continue
         
-        # Remove duplicates by ASIN
         unique_deals = []
         seen_asins = set()
         
@@ -95,7 +85,6 @@ class DealScraper:
         
         logger.info(f"Scraped {len(unique_deals)} unique real deals from Amazon")
         
-        # Fallback: Generate sample deals if scraping fails
         if len(unique_deals) == 0:
             logger.info("No deals scraped, generating fallback sample deals")
             unique_deals = self._generate_fallback_deals()
@@ -131,7 +120,6 @@ class DealScraper:
         """Parse Amazon deal structures from HTML."""
         deals = []
         
-        # Common Amazon deal selectors
         deal_selectors = [
             '[data-component-type="s-search-result"]',
             '.s-result-item',
@@ -158,7 +146,6 @@ class DealScraper:
     def _extract_product_data(self, element, source_url: str) -> Optional[Product]:
         """Extract product data from HTML element."""
         try:
-            # Extract ASIN
             asin = element.get('data-asin')
             if not asin:
                 asin_match = re.search(r'/dp/([A-Z0-9]{10})', str(element))
@@ -168,7 +155,6 @@ class DealScraper:
             if not asin:
                 return None
             
-            # Extract title
             title_selectors = [
                 'h3 a span',
                 '[data-cy="title-recipe-collection"]',
@@ -181,7 +167,6 @@ class DealScraper:
             if not title:
                 return None
             
-            # Extract price
             price_selectors = [
                 '.a-price-whole',
                 '.a-offscreen',
@@ -190,7 +175,6 @@ class DealScraper:
             ]
             price = self._extract_text_by_selectors(element, price_selectors)
             
-            # Extract discount
             discount_selectors = [
                 '.savingsPercentage',
                 '.a-badge-text',
@@ -198,7 +182,6 @@ class DealScraper:
             ]
             discount = self._extract_text_by_selectors(element, discount_selectors)
             
-            # Extract rating
             rating_selectors = [
                 '.a-icon-alt',
                 '[aria-label*="stars"]'
@@ -206,21 +189,16 @@ class DealScraper:
             rating_text = self._extract_text_by_selectors(element, rating_selectors)
             rating = self._extract_rating(rating_text) if rating_text else 0.0
             
-            # Extract review count
             review_selectors = [
                 '.a-size-base',
-                '[href*="#customerReviews"]'
             ]
             review_text = self._extract_text_by_selectors(element, review_selectors)
             review_count = self._extract_review_count(review_text) if review_text else 0
             
-            # Generate Amazon link
             amazon_link = f"https://www.amazon.com/dp/{asin}"
             
-            # Determine category
             category = self._determine_category(title, element)
             
-            # Create product
             product = Product(
                 title=title.strip(),
                 price=self._clean_price(price) if price else "Price not available",
@@ -254,32 +232,24 @@ class DealScraper:
         """Clean and format price text."""
         if not price_text:
             return "Price not available"
-        
-        # Extract price numbers
         price_match = re.search(r'[\d,]+\.?\d*', price_text.replace(',', ''))
         if price_match:
             return f"${price_match.group()}"
-        
-        return price_text[:50]  # Limit length
+        return price_text[:50]
     
     def _clean_discount(self, discount_text: str) -> str:
-        """Clean and format discount text."""
         if not discount_text:
             return ""
-        
-        # Extract percentage
         percent_match = re.search(r'(\d+)%', discount_text)
         if percent_match:
             return f"{percent_match.group(1)}% off"
-        
-        return discount_text[:20]  # Limit length
+        return discount_text[:20]
     
     def _extract_rating(self, rating_text: str) -> float:
         """Extract rating from text."""
         if not rating_text:
             return 0.0
         
-        # Look for rating pattern
         rating_match = re.search(r'(\d+\.?\d*)\s*out of', rating_text.lower())
         if rating_match:
             try:
@@ -294,7 +264,6 @@ class DealScraper:
         if not review_text:
             return 0
         
-        # Look for number patterns
         number_match = re.search(r'([\d,]+)', review_text.replace(',', ''))
         if number_match:
             try:
@@ -308,7 +277,6 @@ class DealScraper:
         """Determine product category from title and element."""
         title_lower = title.lower()
         
-        # Category keywords
         category_map = {
             'electronics': ['phone', 'tablet', 'laptop', 'speaker', 'headphone', 'camera', 'tv', 'smart', 'wireless'],
             'home': ['kitchen', 'cooking', 'chair', 'table', 'lamp', 'bed', 'pillow', 'blanket'],
@@ -334,7 +302,7 @@ class DealScraper:
         
         description = self._extract_text_by_selectors(element, desc_selectors)
         if description:
-            return description[:200]  # Limit length
+            return description[:200]
         
         return "Amazon product with great reviews and competitive pricing."
     
@@ -350,7 +318,6 @@ class DealScraper:
         except Exception as e:
             logger.error(f"Real scraping failed: {e}")
         
-        # Return empty list if no real data available
         logger.warning("No real deals available from scraping")
         return []
     
@@ -359,7 +326,6 @@ class DealScraper:
         if not self.session:
             await self.initialize()
         
-        # Double-check session is properly initialized
         if not self.session:
             logger.error("Failed to initialize session for scraping")
             return None
@@ -367,7 +333,6 @@ class DealScraper:
         try:
             logger.info(f"Scraping specific deal from: {url}")
             
-            # Validate URL is from Amazon
             if 'amazon.com' not in url:
                 logger.warning("URL is not from Amazon")
                 return None
@@ -380,9 +345,7 @@ class DealScraper:
                 html = await response.text()
                 soup = BeautifulSoup(html, 'html.parser')
                 
-                # Extract product details
                 title = self._extract_text_by_selectors(soup, [
-                    '#productTitle',
                     '.product-title',
                     'h1.a-size-large'
                 ])
@@ -402,7 +365,6 @@ class DealScraper:
                     logger.warning("Could not extract product title")
                     return None
                 
-                # Extract ASIN from URL
                 asin = self._extract_asin(url)
                 
                 product = Product(

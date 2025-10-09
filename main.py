@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""
-Amazon Affiliate Deal Bot - Main Application
-Production-ready Telegram bot with web dashboard for Amazon affiliate deals.
-"""
 
 import asyncio
 import logging
-import os
 import signal
 import sys
 import threading
-from datetime import datetime
 from typing import Optional
 
 import dotenv
@@ -42,10 +36,10 @@ logger = logging.getLogger(__name__)
 
 
 class DealBotApplication:
-    """Main application class for the Amazon Affiliate Deal Bot."""
+    
     
     def __init__(self):
-        """Initialize the application."""
+        
         self.config = Config()
         self.running = False
         self.bot: Optional[AffiliateBot] = None
@@ -59,12 +53,12 @@ class DealBotApplication:
         signal.signal(signal.SIGTERM, self._signal_handler)
     
     def _signal_handler(self, signum, frame):
-        """Handle shutdown signals."""
+        
         logger.info(f"Received signal {signum}, shutting down...")
         self.running = False
     
     async def initialize(self) -> bool:
-        """Initialize all application components."""
+        
         try:
             logger.info("🚀 Initializing Amazon Affiliate Deal Bot...")
             
@@ -116,7 +110,7 @@ class DealBotApplication:
             return False
     
     async def start_bot_only(self):
-        """Start only the Telegram bot (no web dashboard)."""
+        
         if not self.bot:
             logger.error("❌ Bot not initialized")
             return
@@ -128,7 +122,7 @@ class DealBotApplication:
             logger.error(f"❌ Bot error: {e}")
     
     async def start_web_only(self):
-        """Start only the web dashboard (no Telegram bot)."""
+        
         try:
             logger.info("🌐 Starting web dashboard only...")
             if self.web_app:
@@ -143,7 +137,7 @@ class DealBotApplication:
             logger.error(f"❌ Web dashboard error: {e}")
     
     async def start_hybrid_mode(self):
-        """Start both bot and web dashboard."""
+        
         if not self.bot:
             logger.error("❌ Cannot start hybrid mode without bot")
             return
@@ -193,7 +187,7 @@ class DealBotApplication:
 
     
     async def post_deals(self) -> int:
-        """Post new deals to Telegram channel with link validation."""
+        
         if not self.bot:
             logger.warning("⚠️ No bot available for posting deals")
             return 0
@@ -315,7 +309,7 @@ class DealBotApplication:
             return 0
     
     async def cleanup(self):
-        """Cleanup application resources."""
+        
         try:
             logger.info("🧹 Cleaning up application resources...")
             
@@ -338,7 +332,7 @@ class DealBotApplication:
 
 
 async def main():
-    """Main application entry point."""
+    
     app = DealBotApplication()
     
     try:

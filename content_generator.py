@@ -1,14 +1,7 @@
-"""
-AI-powered content generator for Amazon Affiliate Deal Bot.
-Uses OpenAI GPT-4o for creating engaging deal descriptions and messages.
-"""
-
-import asyncio
 import json
 import logging
 import random
 from typing import Optional, Dict, Any
-import aiohttp
 
 try:
     from openai import AsyncOpenAI
@@ -22,10 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class ContentGenerator:
-    """AI-powered content generator using OpenAI GPT-4o."""
-    
     def __init__(self, api_key: Optional[str] = None):
-        """Initialize content generator."""
         self.api_key = api_key
         self.client = None
         self.fallback_mode = not (OPENAI_AVAILABLE and api_key)
@@ -37,10 +27,8 @@ class ContentGenerator:
             logger.info("🧠 OpenAI content generator initialized")
     
     async def initialize(self):
-        """Initialize the content generator."""
         if not self.fallback_mode:
             try:
-                # Test the API key
                 await self._test_openai_connection()
                 logger.info("✅ OpenAI connection verified")
             except Exception as e:
@@ -48,17 +36,15 @@ class ContentGenerator:
                 self.fallback_mode = True
     
     async def close(self):
-        """Close the content generator."""
         if self.client:
             await self.client.close()
     
     async def _test_openai_connection(self):
-        """Test OpenAI API connection."""
         if not self.client:
             raise Exception("OpenAI client not initialized")
         
         response = await self.client.chat.completions.create(
-            model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+            model="gpt-4o",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=10
         )
@@ -68,7 +54,6 @@ class ContentGenerator:
     
     async def generate_telegram_message(self, product: Product, affiliate_link: str, 
                                       style: str = "enthusiastic") -> str:
-        """Generate a Telegram message for a product deal."""
         if self.fallback_mode:
             return self._generate_fallback_message(product, affiliate_link, style)
         
@@ -79,7 +64,7 @@ class ContentGenerator:
             prompt = self._build_telegram_prompt(product, style)
             
             response = await self.client.chat.completions.create(
-                model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -97,7 +82,6 @@ class ContentGenerator:
             content = response.choices[0].message.content
             message = content.strip() if content else ""
             
-            # Add affiliate link
             message += f"\n\n🛒 **[Get This Deal]({affiliate_link})**"
             
             return message
@@ -115,7 +99,6 @@ class ContentGenerator:
             return self._generate_fallback_message(product, affiliate_link, style)
     
     async def generate_deal_description(self, product: Product, style: str = "professional") -> str:
-        """Generate a detailed deal description."""
         if self.fallback_mode:
             return self._generate_fallback_description(product, style)
         
@@ -141,7 +124,7 @@ class ContentGenerator:
             """
             
             response = await self.client.chat.completions.create(
-                model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -160,7 +143,6 @@ class ContentGenerator:
             return self._generate_fallback_description(product, style)
     
     async def generate_welcome_message(self, user_name: str) -> str:
-        """Generate a personalized welcome message."""
         if self.fallback_mode:
             return self._generate_fallback_welcome(user_name)
         
@@ -179,7 +161,7 @@ class ContentGenerator:
             """
             
             response = await self.client.chat.completions.create(
-                model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -198,7 +180,6 @@ class ContentGenerator:
             return self._generate_fallback_welcome(user_name)
     
     async def analyze_product_sentiment(self, product: Product) -> Dict[str, Any]:
-        """Analyze product sentiment and generate insights."""
         if self.fallback_mode:
             return {
                 'sentiment_score': 0.7,
@@ -228,7 +209,7 @@ class ContentGenerator:
             """
             
             response = await self.client.chat.completions.create(
-                model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -255,7 +236,6 @@ class ContentGenerator:
             }
     
     def _build_telegram_prompt(self, product: Product, style: str) -> str:
-        """Build prompt for Telegram message generation."""
         return f"""
         Create a {style} Telegram message for this Amazon deal:
         
@@ -278,10 +258,8 @@ class ContentGenerator:
         Do NOT include the affiliate link - it will be added separately.
         """
     
-    # Fallback content generation methods
     
     def _generate_fallback_message(self, product: Product, affiliate_link: str, style: str) -> str:
-        """Generate fallback Telegram message without AI."""
         templates = {
             "enthusiastic": [
                 "🔥 **AMAZING DEAL ALERT!** 🔥\n\n💫 {title}\n💰 **{price}** ({discount})\n⭐ {rating}/5 ({review_count} reviews)\n\n🚨 LIMITED TIME OFFER! Don't miss out!\n\n🛒 **[Get This Deal Now]({link})**",
@@ -310,7 +288,6 @@ class ContentGenerator:
         )
     
     def _generate_fallback_description(self, product: Product, style: str) -> str:
-        """Generate fallback description without AI."""
         base_descriptions = {
             "enthusiastic": f"🌟 Get ready to be amazed by this incredible {product.category} deal! {product.title} is now available at an unbeatable price of {product.price} with {product.discount}! Don't let this opportunity slip away!",
             "professional": f"This {product.category} item offers excellent value at {product.price}. With {product.discount}, it represents significant savings for customers looking for quality products in this category.",
@@ -320,7 +297,6 @@ class ContentGenerator:
         return base_descriptions.get(style, base_descriptions["simple"])
     
     def _generate_fallback_welcome(self, user_name: str) -> str:
-        """Generate fallback welcome message."""
         messages = [
             f"🎉 Welcome {user_name}! I'm here to help you find the best Amazon deals and save money! 💰\n\nGet ready for amazing discounts, exclusive offers, and unbeatable prices! 🛍️",
             f"👋 Hi {user_name}! Welcome to your personal deal finder! 🔍\n\nI'll help you discover incredible Amazon deals and save big on quality products! ⭐",
