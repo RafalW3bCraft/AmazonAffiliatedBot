@@ -205,11 +205,15 @@ class DealBotApplication:
             await scraper.close()
             
             if not deals:
-                logger.info("ℹ️ No new deals found")
+                logger.warning("⚠️ No new deals found from scraper. This may indicate:")
+                logger.warning("  1. Amazon HTML structure changed")
+                logger.warning("  2. Rate limiting by Amazon")
+                logger.warning("  3. Quality filters too strict")
+                logger.warning("  4. Network connectivity issues")
                 return 0
             
             # Validate all affiliate links before posting
-            async with LinkValidator() as validator:
+            async with LinkValidator(expected_affiliate_tag=self.config.AMAZON_AFFILIATE_ID) as validator:
                 affiliate_links = [self.config.get_affiliate_link(deal.link) for deal in deals]
                 validation_results = await validator.validate_links_batch(affiliate_links)
                 
@@ -267,17 +271,50 @@ class DealBotApplication:
                     )
                     
                     # Post to channel if configured
-                    if self.config.TELEGRAM_CHANNEL and self.bot and self.bot.bot:
+                    if not self.config.TELEGRAM_CHANNEL:
+                        logger.warning("⚠️ TELEGRAM_CHANNEL not configured, skipping Telegram post")
+                    elif not self.bot:
+                        logger.warning("⚠️ Bot not initialized, skipping Telegram post")
+                    elif not self.bot.bot:
+                        logger.warning("⚠️ Bot instance not available, skipping Telegram post")
+                    else:
                         try:
-                            await self.bot.bot.send_message(
-                                chat_id=self.config.TELEGRAM_CHANNEL,
-                                text=message,
-                                parse_mode="Markdown",
-                                disable_web_page_preview=False
-                            )
-                            logger.info(f"✅ Posted to Telegram: {product.title[:30]}...")
+                            # Send with image if available
+                            if product.image_url and product.image_url.strip():
+                                try:
+                                    await self.bot.bot.send_photo(
+                                        chat_id=self.config.TELEGRAM_CHANNEL,
+                                        photo=product.image_url,
+                                        caption=message,
+                                        parse_mode="Markdown"
+                                    )
+                                    logger.info(f"✅ Posted to Telegram with image: {product.title[:30]}...")
+                                except Exception as img_error:
+                                    logger.warning(f"Failed to send image ({img_error}), falling back to text")
+                                    # Fallback to text message
+                                    try:
+                                        await self.bot.bot.send_message(
+                                            chat_id=self.config.TELEGRAM_CHANNEL,
+                                            text=message,
+                                            parse_mode="Markdown",
+                                            disable_web_page_preview=False
+                                        )
+                                        logger.info(f"✅ Posted to Telegram (text fallback): {product.title[:30]}...")
+                                    except Exception as text_error:
+                                        logger.error(f"Failed to send text message: {text_error}")
+                                        raise
+                            else:
+                                await self.bot.bot.send_message(
+                                    chat_id=self.config.TELEGRAM_CHANNEL,
+                                    text=message,
+                                    parse_mode="Markdown",
+                                    disable_web_page_preview=False
+                                )
+                                logger.info(f"✅ Posted to Telegram: {product.title[:30]}...")
                         except Exception as telegram_error:
-                            logger.error(f"Telegram posting error: {telegram_error}")
+                            logger.error(f"❌ Telegram posting error for {product.title[:30]}: {telegram_error}")
+                            import traceback
+                            logger.error(f"Traceback: {traceback.format_exc()}")
                             # Continue to save to database even if Telegram fails
                             pass
                     

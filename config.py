@@ -18,9 +18,17 @@ class Config:
         self.OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
         self.DATABASE_URL = os.getenv('DATABASE_URL', '')
         
-        self.AFFILIATE_ID = os.getenv('AMAZON_AFFILIATE_ID', os.getenv('AFFILIATE_ID', 'youcanhaveita-21'))
+        # Use only AMAZON_AFFILIATE_ID - no fallback to AFFILIATE_ID
+        amazon_affiliate_id = os.getenv('AMAZON_AFFILIATE_ID', '').strip()
+        if not amazon_affiliate_id:
+            logger.warning("⚠️ AMAZON_AFFILIATE_ID not configured - affiliate links will not work properly")
+        # Validate affiliate ID format (alphanumeric + hyphens, typically 10-15 chars)
+        if amazon_affiliate_id and not re.match(r'^[a-zA-Z0-9\-]{10,20}$', amazon_affiliate_id):
+            logger.warning(f"⚠️ AMAZON_AFFILIATE_ID format may be invalid: {amazon_affiliate_id[:10]}...")
+        self.AMAZON_AFFILIATE_ID = amazon_affiliate_id
         
-        self.TELEGRAM_CHANNEL = os.getenv('TELEGRAM_CHANNEL', os.getenv('TELEGRAM_CHENNAL', '@one4all_market'))
+        # Fix typo: TELEGRAM_CHENNAL -> TELEGRAM_CHANNEL (keep fallback for backward compatibility)
+        self.TELEGRAM_CHANNEL = os.getenv('TELEGRAM_CHANNEL', os.getenv('TELEGRAM_CHENNAL', ''))
         
         self.MAX_DEALS_PER_SOURCE = int(os.getenv('MAX_DEALS_PER_SOURCE', '5'))
         self.POST_INTERVAL_MINUTES = int(os.getenv('POST_INTERVAL_MINUTES', '6'))
@@ -32,14 +40,14 @@ class Config:
         self.FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
         
         self.REGIONAL_AFFILIATE_IDS = {
-            'US': self.AFFILIATE_ID,
-            'UK': os.getenv('AFFILIATE_ID_UK', self.AFFILIATE_ID),
-            'DE': os.getenv('AFFILIATE_ID_DE', self.AFFILIATE_ID),
-            'FR': os.getenv('AFFILIATE_ID_FR', self.AFFILIATE_ID),
-            'CA': os.getenv('AFFILIATE_ID_CA', self.AFFILIATE_ID),
-            'JP': os.getenv('AFFILIATE_ID_JP', self.AFFILIATE_ID),
-            'AU': os.getenv('AFFILIATE_ID_AU', self.AFFILIATE_ID),
-            'IN': os.getenv('AFFILIATE_ID_IN', self.AFFILIATE_ID),
+            'US': self.AMAZON_AFFILIATE_ID,
+            'UK': os.getenv('AMAZON_AFFILIATE_ID_UK', self.AMAZON_AFFILIATE_ID),
+            'DE': os.getenv('AMAZON_AFFILIATE_ID_DE', self.AMAZON_AFFILIATE_ID),
+            'FR': os.getenv('AMAZON_AFFILIATE_ID_FR', self.AMAZON_AFFILIATE_ID),
+            'CA': os.getenv('AMAZON_AFFILIATE_ID_CA', self.AMAZON_AFFILIATE_ID),
+            'JP': os.getenv('AMAZON_AFFILIATE_ID_JP', self.AMAZON_AFFILIATE_ID),
+            'AU': os.getenv('AMAZON_AFFILIATE_ID_AU', self.AMAZON_AFFILIATE_ID),
+            'IN': os.getenv('AMAZON_AFFILIATE_ID_IN', self.AMAZON_AFFILIATE_ID),
         }
         
         self.REGIONAL_CURRENCIES = {
@@ -66,7 +74,7 @@ class Config:
         logger.info(f"  🤖 Bot configured: {self.bot_configured}")
         logger.info(f"  🧠 OpenAI configured: {self.openai_configured}")
         logger.info(f"  📊 Database configured: {self.database_configured}")
-        logger.info(f"  🛒 Affiliate ID: {self.AFFILIATE_ID}")
+        logger.info(f"  🛒 Amazon Affiliate ID: {self.AMAZON_AFFILIATE_ID or 'Not configured'}")
         logger.info(f"  📢 Telegram channel: {self.TELEGRAM_CHANNEL or 'Not configured'}")
         logger.info(f"  🌍 Default region: {self.DEFAULT_REGION}")
     
@@ -100,15 +108,34 @@ class Config:
         
         if not self.database_configured:
             logger.warning("⚠️ DATABASE_URL not configured - using in-memory database")
+        
+        if not self.AMAZON_AFFILIATE_ID:
+            logger.warning("⚠️ AMAZON_AFFILIATE_ID not configured - affiliate links will not work")
+        
         return True
     
     def get_affiliate_link(self, product_url: str, region: Optional[str] = None) -> str:
         
         if not product_url:
+            logger.warning("Empty product URL provided to get_affiliate_link")
             return ""
         
+        # Validate URL format
+        if not (product_url.startswith('http://') or product_url.startswith('https://')):
+            logger.warning(f"Invalid URL format: {product_url[:50]}...")
+            return ""
+        
+        if not self.AMAZON_AFFILIATE_ID:
+            logger.warning("AMAZON_AFFILIATE_ID not configured, cannot generate affiliate link")
+            return product_url  # Return original URL if no affiliate ID
+        
         region = region or self.DEFAULT_REGION
-        affiliate_id = self.REGIONAL_AFFILIATE_IDS.get(region, self.AFFILIATE_ID)
+        affiliate_id = self.REGIONAL_AFFILIATE_IDS.get(region, self.AMAZON_AFFILIATE_ID)
+        
+        # Validate affiliate ID format
+        if affiliate_id and not re.match(r'^[a-zA-Z0-9\-]{10,20}$', affiliate_id):
+            logger.warning(f"Invalid affiliate ID format: {affiliate_id[:10]}...")
+            return product_url
         
         try:
             asin_match = re.search(r'/dp/([A-Z0-9]{10})', product_url)
@@ -191,7 +218,7 @@ class Config:
             'currency_symbol': currency_info['symbol'],
             'currency_code': currency_info['code'],
             'amazon_domain': currency_info['domain'],
-            'affiliate_id': self.REGIONAL_AFFILIATE_IDS.get(effective_region, self.AFFILIATE_ID)
+            'affiliate_id': self.REGIONAL_AFFILIATE_IDS.get(effective_region, self.AMAZON_AFFILIATE_ID)
         }
     
     def to_dict(self) -> Dict[str, Any]:
@@ -200,7 +227,7 @@ class Config:
             'bot_configured': self.bot_configured,
             'openai_configured': self.openai_configured,
             'database_configured': self.database_configured,
-            'affiliate_id': self.AFFILIATE_ID,
+            'amazon_affiliate_id': self.AMAZON_AFFILIATE_ID,
             'telegram_channel': self.TELEGRAM_CHANNEL,
             'default_region': self.DEFAULT_REGION,
             'max_deals_per_source': self.MAX_DEALS_PER_SOURCE,

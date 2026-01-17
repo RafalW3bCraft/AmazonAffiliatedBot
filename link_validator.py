@@ -20,10 +20,11 @@ class LinkValidationResult:
 class LinkValidator:
     
     
-    def __init__(self, timeout: int = 15, max_retries: int = 2):
+    def __init__(self, timeout: int = 15, max_retries: int = 2, expected_affiliate_tag: str = None):
         
         self.timeout = timeout
         self.max_retries = max_retries
+        self.expected_affiliate_tag = expected_affiliate_tag
         self.session = None
         
     async def initialize(self):
@@ -93,23 +94,46 @@ class LinkValidator:
                         response_time = asyncio.get_event_loop().time() - start_time
                         
                         if response.status in [200, 206, 416]:
+                            final_url = str(response.url)
+                            
+                            # If expected_tag is provided, verify it
+                            if self.expected_affiliate_tag:
+                                tag_valid, tag_error = self.verify_affiliate_tag(
+                                    final_url, 
+                                    self.expected_affiliate_tag
+                                )
+                                if not tag_valid:
+                                    logger.warning(f"⚠️ Affiliate tag verification failed for {url[:50]}...: {tag_error}")
+                                    # Still return valid=True for URL, but log the warning
+                            
                             logger.debug(f"✅ Link validated: {url[:50]}... ({response.status})")
                             return LinkValidationResult(
                                 url=url,
                                 is_valid=True,
                                 status_code=response.status,
-                                redirect_url=str(response.url) if str(response.url) != url else None,
+                                redirect_url=final_url if final_url != url else None,
                                 response_time=response_time
                             )
                         elif response.status == 405:
                             async with self.session.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=5)) as response2:
                                 if response2.status == 200:
+                                    final_url = str(response2.url)
+                                    
+                                    # Verify affiliate tag if provided
+                                    if self.expected_affiliate_tag:
+                                        tag_valid, tag_error = self.verify_affiliate_tag(
+                                            final_url,
+                                            self.expected_affiliate_tag
+                                        )
+                                        if not tag_valid:
+                                            logger.warning(f"⚠️ Affiliate tag verification failed (fallback) for {url[:50]}...: {tag_error}")
+                                    
                                     logger.debug(f"✅ Link validated (fallback): {url[:50]}... (200 OK)")
                                     return LinkValidationResult(
                                         url=url,
                                         is_valid=True,
                                         status_code=response2.status,
-                                        redirect_url=str(response2.url) if str(response2.url) != url else None,
+                                        redirect_url=final_url if final_url != url else None,
                                         response_time=response_time
                                     )
                                 else:
@@ -224,10 +248,55 @@ class LinkValidator:
             domain = parsed.netloc.lower()
             if domain.startswith('www.'):
                 domain = domain[4:]
-                
-            return domain in amazon_domains
-        except Exception:
+            
+            is_amazon = domain in amazon_domains
+            
+            # Additional validation: check if URL contains valid ASIN pattern
+            if is_amazon:
+                import re
+                # Check for ASIN in URL path (/dp/ASIN or /gp/product/ASIN)
+                asin_pattern = r'/(?:dp|gp/product)/([A-Z0-9]{10})'
+                asin_match = re.search(asin_pattern, parsed.path)
+                if asin_match:
+                    asin = asin_match.group(1)
+                    # Validate ASIN format (10 alphanumeric characters)
+                    if not re.match(r'^[A-Z0-9]{10}$', asin):
+                        logger.debug(f"Invalid ASIN format in URL: {asin}")
+                        return False
+            
+            return is_amazon
+        except Exception as e:
+            logger.debug(f"Error validating Amazon link: {e}")
             return False
+    
+    def verify_affiliate_tag(self, url: str, expected_tag: str) -> tuple:
+        """Verify affiliate tag is present in URL.
+        
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not url or not expected_tag:
+            return False, "Missing URL or affiliate tag"
+        
+        try:
+            from urllib.parse import urlparse, parse_qs
+            
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            
+            # Check for tag parameter
+            tag_values = params.get('tag', [])
+            if not tag_values:
+                return False, "No 'tag' parameter found in URL"
+            
+            actual_tag = tag_values[0]
+            if actual_tag != expected_tag:
+                return False, f"Tag mismatch: expected '{expected_tag}', got '{actual_tag}'"
+            
+            return True, "Tag verified"
+            
+        except Exception as e:
+            return False, f"Error verifying tag: {str(e)}"
 
     def get_validation_stats(self, results: List[LinkValidationResult]) -> Dict[str, Any]:
         

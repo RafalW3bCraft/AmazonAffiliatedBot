@@ -72,7 +72,13 @@ def safe_int(value, default=0):
     if value is None:
         return default
     try:
-        return int(value)
+        result = int(value)
+        # Prevent negative values or extremely large values
+        if result < 0:
+            return default
+        if result > 1000000:  # Reasonable upper limit
+            return default
+        return result
     except (ValueError, TypeError):
         return default
 
@@ -80,9 +86,40 @@ def safe_float(value, default=0.0):
     if value is None:
         return default
     try:
-        return float(value)
+        result = float(value)
+        # Prevent negative values or extremely large values
+        if result < 0:
+            return default
+        if result > 10000000:  # Reasonable upper limit
+            return default
+        return result
     except (ValueError, TypeError):
         return default
+
+def sanitize_string(value, max_length=100, allowed_chars=None):
+    """Sanitize string input to prevent XSS and injection attacks."""
+    if value is None:
+        return None
+    
+    if not isinstance(value, str):
+        value = str(value)
+    
+    # Remove any HTML tags
+    import re
+    value = re.sub(r'<[^>]+>', '', value)
+    
+    # Remove script patterns
+    value = re.sub(r'javascript:', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'on\w+\s*=', '', value, flags=re.IGNORECASE)
+    
+    # Limit length
+    value = value[:max_length] if len(value) > max_length else value
+    
+    # If allowed_chars specified, filter to only those characters
+    if allowed_chars:
+        value = ''.join(c for c in value if c in allowed_chars)
+    
+    return value.strip()
 
 def create_app(config: Config):
     app = Flask(__name__)
@@ -229,9 +266,11 @@ def create_app(config: Config):
     @app.route('/api/deals')
     def api_deals():
         try:
-            hours = request.args.get('hours', 24, type=int)
-            limit = request.args.get('limit', 50, type=int)
-            category = request.args.get('category', None)
+            hours = safe_int(request.args.get('hours', 24), 24)
+            limit = safe_int(request.args.get('limit', 50), 50)
+            category_raw = request.args.get('category', None)
+            # Sanitize category input - only allow alphanumeric, hyphens, underscores
+            category = sanitize_string(category_raw, max_length=50, allowed_chars='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_') if category_raw else None
             
             data_manager = getattr(app, 'data_manager', None)
             if not data_manager or not data_manager.db_manager:
@@ -280,7 +319,7 @@ def create_app(config: Config):
     @app.route('/api/users')
     def api_users():
         try:
-            days = request.args.get('days', 30, type=int)
+            days = safe_int(request.args.get('days', 30), 30)
             
             data_manager = getattr(app, 'data_manager', None)
             if not data_manager or not data_manager.db_manager:
@@ -326,7 +365,7 @@ def create_app(config: Config):
     def api_config():
         try:
             return jsonify({
-                'affiliate_id': config.AFFILIATE_ID,
+                'amazon_affiliate_id': config.AMAZON_AFFILIATE_ID,
                 'supported_regions': config.get_supported_regions() if hasattr(config, 'get_supported_regions') else ['US'],
                 'default_region': getattr(config, 'DEFAULT_REGION', 'US'),
                 'bot_configured': getattr(config, 'bot_configured', False),

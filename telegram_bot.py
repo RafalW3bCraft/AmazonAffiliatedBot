@@ -77,6 +77,7 @@ class AffiliateBot:
         self.dp.message.register(self.cmd_sports, Command(commands=['sports']))
         self.dp.message.register(self.cmd_beauty, Command(commands=['beauty']))
         self.dp.message.register(self.cmd_books, Command(commands=['books']))
+        self.dp.message.register(self.cmd_search, Command(commands=['search']))
         
         self.dp.message.register(self.cmd_admin, Command(commands=['admin']))
         self.dp.message.register(self.cmd_add_deal, Command(commands=['add_deal']))
@@ -189,6 +190,7 @@ Ready to save money? Use /deals to see current offers!
 **Available Commands:**
 • /start - Welcome and setup
 • /deals - Latest deals (all categories)
+• /search <keyword> - Search products by keyword
 • /category - Set your preferences
 • /region - Set your region
 • /stats - Your statistics
@@ -202,10 +204,11 @@ Ready to save money? Use /deals to see current offers!
 • /books - Books deals
 
 **How it works:**
-1. Use category commands for specific deals
-2. Set your region for local pricing
-3. Get instant deal notifications
-4. Click links to shop with discounts
+1. Use /search to find specific products
+2. Use category commands for specific deals
+3. Set your region for local pricing
+4. Get instant deal notifications
+5. Click links to shop with discounts
 
 **Supported Regions:**
 US, UK, DE, FR, CA, JP, AU, IN
@@ -334,6 +337,81 @@ Need help? Just ask!"""
     
     async def cmd_books(self, message):
         await self._get_category_deals(message, "books", "📚")
+    
+    async def cmd_search(self, message):
+        """Search for products by keyword."""
+        try:
+            # Extract keyword from message
+            text_parts = message.text.split(maxsplit=1)
+            if len(text_parts) < 2:
+                await message.answer(
+                    "🔍 **Product Search**\n\n"
+                    "Usage: `/search <keyword>`\n\n"
+                    "Example: `/search wireless headphones`\n\n"
+                    "I'll search Amazon and show you the best matching products!",
+                    parse_mode="Markdown"
+                )
+                return
+            
+            keyword = text_parts[1].strip()
+            
+            if len(keyword) < 3:
+                await message.answer("❌ Search keyword must be at least 3 characters long.")
+                return
+            
+            await message.answer(f"🔍 Searching for '{keyword}'...")
+            
+            # Search products
+            products = await self.scraper.search_products_by_keyword(
+                keyword=keyword,
+                max_results=10,
+                affiliate_id=self.config.AMAZON_AFFILIATE_ID
+            )
+            
+            if not products:
+                await message.answer(
+                    f"❌ No products found for '{keyword}'. Try a different search term."
+                )
+                return
+            
+            await message.answer(
+                f"✅ Found {len(products)} products for '{keyword}':",
+                parse_mode="Markdown"
+            )
+            
+            # Send each product
+            for product in products[:5]:  # Limit to 5 results
+                affiliate_link = self.config.get_affiliate_link(product.link)
+                message_text = await self.content_generator.generate_telegram_message(
+                    product, affiliate_link
+                )
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🛒 Get This Deal", url=affiliate_link)]
+                ])
+                
+                # Send with image if available
+                if product.image_url:
+                    try:
+                        await self.bot.send_photo(
+                            chat_id=message.chat.id,
+                            photo=product.image_url,
+                            caption=message_text,
+                            reply_markup=keyboard,
+                            parse_mode="Markdown"
+                        )
+                    except Exception as img_error:
+                        logger.warning(f"Failed to send image for {product.title[:30]}: {img_error}")
+                        # Fallback to text if image fails
+                        await message.answer(message_text, reply_markup=keyboard, parse_mode="Markdown")
+                else:
+                    await message.answer(message_text, reply_markup=keyboard, parse_mode="Markdown")
+                
+                await asyncio.sleep(0.5)  # Rate limiting
+            
+        except Exception as e:
+            logger.error(f"Error in search command: {e}")
+            await message.answer("❌ Error searching products. Please try again later.")
     
     async def cmd_category(self, message):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
