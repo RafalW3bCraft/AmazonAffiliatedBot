@@ -21,29 +21,25 @@ class TaskScheduler:
             self.running = True
             logger.info("⏰ Starting task scheduler...")
             
-            try:
-                async with asyncio.TaskGroup() as tg:
-                    deal_posting_task = tg.create_task(
-                        self._schedule_deal_posting()
-                    )
-                    self.tasks.append(deal_posting_task)
-                    
-                    cleanup_task = tg.create_task(
-                        self._schedule_database_cleanup()
-                    )
-                    self.tasks.append(cleanup_task)
-                    
-                    stats_task = tg.create_task(
-                        self._schedule_stats_update()
-                    )
-                    self.tasks.append(stats_task)
-                    
-                    logger.info("✅ All scheduled tasks started")
-                    
-            except* Exception as eg:
-                logger.error(f"Error in task scheduler: {eg}")
+            async with asyncio.TaskGroup() as tg:
+                deal_posting_task = tg.create_task(
+                    self._schedule_deal_posting()
+                )
+                self.tasks.append(deal_posting_task)
+                
+                cleanup_task = tg.create_task(
+                    self._schedule_database_cleanup()
+                )
+                self.tasks.append(cleanup_task)
+                
+                stats_task = tg.create_task(
+                    self._schedule_stats_update()
+                )
+                self.tasks.append(stats_task)
+                
+                logger.info("✅ All scheduled tasks started")
         except Exception as e:
-            logger.warning("TaskGroup not available, using legacy task scheduling")
+            logger.warning(f"TaskGroup scheduler failed, using legacy task scheduling: {e}")
             await self._start_legacy_tasks()
         finally:
             self.running = False

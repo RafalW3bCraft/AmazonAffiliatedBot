@@ -367,6 +367,30 @@ class DealBotApplication:
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
 
+    async def test_mode(self):
+        """Run a lightweight diagnostics pass without starting long-running services."""
+        logger.info("🧪 Running diagnostics test mode...")
+
+        diagnostics = {
+            "config_valid": self.config.validate(),
+            "bot_configured": self.config.bot_configured,
+            "database_configured": self.config.database_configured,
+            "web_ready": self.web_app is not None,
+        }
+
+        if self.db_manager:
+            try:
+                stats = await self.db_manager.get_deal_stats()
+                diagnostics["database_connected"] = stats is not None
+            except Exception as db_error:
+                diagnostics["database_connected"] = False
+                logger.warning(f"Database diagnostics check failed: {db_error}")
+        else:
+            diagnostics["database_connected"] = False
+
+        for key, value in diagnostics.items():
+            logger.info(f"🔍 {key}: {value}")
+
 
 async def main():
     

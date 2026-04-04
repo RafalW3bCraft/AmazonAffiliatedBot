@@ -258,6 +258,33 @@ The target architecture should move toward a layered model:
 
 ## 7) Feature Roadmap
 
+## Near-term (2-4 weeks)
+- Stabilized runtime.
+- Reliable posting pipeline.
+- Accurate dashboard filtering.
+- Better admin/security controls.
+
+## Mid-term (1-2 months)
+- Multi-source deal ingestion.
+- A/B content style optimization.
+- Advanced attribution/clickstream modeling.
+
+## Long-term (quarterly)
+- Multi-channel publishing (Telegram + webhooks + email).
+- Region-specific optimization policies.
+- ML-assisted deal quality prediction.
+
+---
+
+## 8) Definition of Done (Project Quality)
+
+A release is considered healthy only if:
+- All modules compile and start in supported modes.
+- End-to-end pipeline runs with deterministic error reporting.
+- Dashboard reflects canonical data model.
+- Duplicate logic reduced to single authoritative services.
+- Tests cover parser, link validation, pipeline orchestration, and API contracts.
+
 ## Near-term (v2.1)
 - Canonical service layer and unified posting flow.
 - Runtime compatibility guard and startup diagnostics.
