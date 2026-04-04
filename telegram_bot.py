@@ -168,20 +168,10 @@ Ready to save money? Use /deals to see current offers!
             
         except Exception as e:
             logger.error(f"Error in /start command: {e}")
-            await message.reply("Welcome! Use /deals to see current Amazon offers.")
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📱 Electronics", callback_data="category:electronics"),
-                 InlineKeyboardButton(text="🏠 Home", callback_data="category:home")],
-                [InlineKeyboardButton(text="👕 Fashion", callback_data="category:fashion"),
-                 InlineKeyboardButton(text="⚽ Sports", callback_data="category:sports")],
-                [InlineKeyboardButton(text="🛍️ All Categories", callback_data="category:all")]
-            ])
-            
-            await message.answer(welcome_msg, reply_markup=keyboard, parse_mode="Markdown")
-            
-        except Exception as e:
-            logger.error(f"Error in start command: {e}")
-            await message.answer("Welcome! I'll help you find the best Amazon deals! 🛍️")
+            try:
+                await message.reply("Welcome! Use /deals to see current Amazon offers.")
+            except Exception:
+                await message.answer("Welcome! I'll help you find the best Amazon deals! 🛍️")
     
     async def cmd_help(self, message):
         try:
@@ -516,7 +506,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
     async def cmd_admin(self, message):
         # Simple admin check - in production, use proper admin verification
         user_id = message.from_user.id
-        admin_ids = [int(x) for x in str(self.config.ADMIN_USER_IDS or "").split(",") if x.isdigit()]
+        admin_ids = self.config.ADMIN_USER_IDS or []
         
         if admin_ids and user_id not in admin_ids:
             await message.answer("❌ Access denied. Admin only.")
@@ -589,7 +579,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
     async def cmd_broadcast(self, message):
         # Simple admin check
         user_id = message.from_user.id
-        admin_ids = [int(x) for x in str(self.config.ADMIN_USER_IDS or "").split(",") if x.isdigit()]
+        admin_ids = self.config.ADMIN_USER_IDS or []
         
         if admin_ids and user_id not in admin_ids:
             await message.answer("❌ Access denied. Admin only.")
