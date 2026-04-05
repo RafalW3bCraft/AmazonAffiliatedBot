@@ -40,6 +40,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def check_python_runtime() -> bool:
+    """Return True for recommended runtime (3.11+), False otherwise."""
+    return sys.version_info >= (3, 11)
+
+
 class DealBotApplication:
     
     
@@ -240,6 +245,22 @@ class DealBotApplication:
             
             content_generator = ContentGenerator(self.config.OPENAI_API_KEY)
             await content_generator.initialize()
+            try:
+                pipeline = DealPipelineService(
+                    db_manager=self.db_manager,
+                    content_generator=content_generator,
+                    affiliate_link_builder=self.config.get_affiliate_link,
+                    telegram_client=self.bot.bot if self.bot else None,
+                    telegram_channel=self.config.TELEGRAM_CHANNEL,
+                    source="scraper",
+                    content_style="enthusiastic",
+                    dedupe_hours=2,
+                )
+                result = await pipeline.post_products(valid_deals)
+            finally:
+                await content_generator.close()
+
+
 
             pipeline = DealPipelineService(
                 db_manager=self.db_manager,
@@ -312,11 +333,27 @@ class DealBotApplication:
 
 
 async def main():
-    
-    app = DealBotApplication()
-    
+    app = None
     try:
         if len(sys.argv) > 1 and sys.argv[1] == "--version-check":
+            ok = check_python_runtime()
+            if ok:
+                print(f"Python version OK: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+                return 0
+            print(
+                f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} detected; "
+                "3.11+ is recommended."
+            )
+            return 1
+
+        app = DealBotApplication()
+
+        if not check_python_runtime():
+            logger.warning(
+                f"⚠️ Running on Python {sys.version_info.major}.{sys.version_info.minor}. "
+                "Python 3.11+ is recommended."
+            )
+
             print(f"Python version OK: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
             return 0
 
@@ -354,7 +391,8 @@ async def main():
         logger.error(f"❌ Application error: {e}")
         return 1
     finally:
-        await app.cleanup()
+        if app:
+            await app.cleanup()
 
 
 if __name__ == "__main__":

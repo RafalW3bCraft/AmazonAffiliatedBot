@@ -74,6 +74,12 @@ class AsyncDataManager:
             return None
 
     def stop(self):
+        if self.db_manager and self._loop and self._loop.is_running():
+            try:
+                close_coro = self.db_manager.close()
+                asyncio.run_coroutine_threadsafe(close_coro, self._loop).result(timeout=5)
+            except Exception as e:
+                logger.warning(f"AsyncDataManager DB close warning: {e}")
         if self._loop and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._loop.stop)
         if self._thread and self._thread.is_alive():
