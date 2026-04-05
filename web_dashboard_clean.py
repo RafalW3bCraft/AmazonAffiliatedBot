@@ -1,10 +1,12 @@
 import logging
 import asyncio
 import threading
+import atexit
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from config import Config
 from database_simple import SimpleDatabaseManager
+from core.telemetry import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +60,25 @@ class AsyncDataManager:
         
     def execute_async(self, coro):
         if not self._loop or not self._initialized:
+            if hasattr(coro, "close"):
+                coro.close()
             return None
             
         try:
             future = asyncio.run_coroutine_threadsafe(coro, self._loop)
             return future.result(timeout=10)
         except Exception as e:
+            if hasattr(coro, "close"):
+                coro.close()
             logger.error(f"Async execution error: {e}")
             return None
+
+    def stop(self):
+        if self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=5.0)
+        logger.info("AsyncDataManager stopped")
 
 
 def safe_int(value, default=0):
@@ -127,6 +140,7 @@ def create_app(config: Config):
     
     data_manager = AsyncDataManager(config)
     data_manager.start()
+    atexit.register(data_manager.stop)
     
     setattr(app, 'data_manager', data_manager)
     
@@ -397,6 +411,7 @@ def create_app(config: Config):
             return jsonify({
                 'status': 'healthy' if db_healthy else 'degraded',
                 'database': 'connected' if db_healthy else 'disconnected',
+                'metrics': metrics.snapshot(),
                 'timestamp': datetime.now().isoformat()
             })
             
@@ -405,6 +420,7 @@ def create_app(config: Config):
             return jsonify({
                 'status': 'unhealthy',
                 'error': str(e),
+                'metrics': metrics.snapshot(),
                 'timestamp': datetime.now().isoformat()
             }), 503
     

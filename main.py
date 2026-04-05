@@ -12,6 +12,10 @@ import dotenv
 # Load environment variables
 dotenv.load_dotenv()
 
+if sys.version_info < (3, 11):
+    print(f"[FATAL] Python 3.11+ required. Current: {sys.version_info.major}.{sys.version_info.minor}")
+    sys.exit(1)
+
 
 from config import Config
 from telegram_bot import AffiliateBot
@@ -21,6 +25,7 @@ from database import DatabaseManager
 from database_simple import SimpleDatabaseManager
 from content_generator import ContentGenerator
 from scraper import DealScraper
+from services.deal_pipeline_service import DealPipelineService
 
 # Configure logging
 logging.basicConfig(
@@ -87,7 +92,7 @@ class DealBotApplication:
             
             # Initialize Telegram bot
             if self.config.bot_configured:
-                self.bot = AffiliateBot(self.config)
+                self.bot = AffiliateBot(self.config, db_manager=self.db_manager)
                 await self.bot.initialize()
                 logger.info("🤖 Telegram bot initialized")
             else:
@@ -233,113 +238,27 @@ class DealBotApplication:
                 logger.warning("⚠️ No deals with valid links found")
                 return 0
             
-            posted_count = 0
             content_generator = ContentGenerator(self.config.OPENAI_API_KEY)
             await content_generator.initialize()
-            
-            for product in valid_deals:
-                try:
-                    # Check for duplicates posted in last 2 hours only (more lenient)
-                    if product.asin and self.db_manager:
-                        try:
-                            existing = await self.db_manager.get_deal_by_asin(product.asin)
-                            if existing and hasattr(existing, 'posted_at') and existing.posted_at:
-                                from datetime import datetime, timedelta, timezone
-                                now = datetime.now(timezone.utc)
-                                # Handle timezone-aware/naive datetime comparison safely
-                                if existing.posted_at.tzinfo is None:
-                                    posted_time = existing.posted_at.replace(tzinfo=timezone.utc)
-                                else:
-                                    posted_time = existing.posted_at
-                                time_diff = now - posted_time
-                                logger.info(f"🔍 Checking duplicate for {product.title[:30]}: posted {time_diff} ago")
-                                if time_diff < timedelta(hours=2):
-                                    logger.info(f"⏭️ Skipping recent duplicate: {product.title[:30]} (posted {time_diff} ago)")
-                                    continue
-                                else:
-                                    logger.info(f"🔄 Reposting old deal: {product.title[:30]} (posted {time_diff} ago)")
-                        except Exception as duplicate_check_error:
-                            logger.warning(f"Duplicate check failed for {product.title[:30]}: {duplicate_check_error}")
-                            # Continue posting if duplicate check fails
-                    
-                    # Use validated affiliate link
-                    affiliate_link = getattr(product, 'validated_link', self.config.get_affiliate_link(product.link))
-                    
-                    # Generate content
-                    message = await content_generator.generate_telegram_message(
-                        product, affiliate_link
-                    )
-                    
-                    # Post to channel if configured
-                    if not self.config.TELEGRAM_CHANNEL:
-                        logger.warning("⚠️ TELEGRAM_CHANNEL not configured, skipping Telegram post")
-                    elif not self.bot:
-                        logger.warning("⚠️ Bot not initialized, skipping Telegram post")
-                    elif not self.bot.bot:
-                        logger.warning("⚠️ Bot instance not available, skipping Telegram post")
-                    else:
-                        try:
-                            # Send with image if available
-                            if product.image_url and product.image_url.strip():
-                                try:
-                                    await self.bot.bot.send_photo(
-                                        chat_id=self.config.TELEGRAM_CHANNEL,
-                                        photo=product.image_url,
-                                        caption=message,
-                                        parse_mode="Markdown"
-                                    )
-                                    logger.info(f"✅ Posted to Telegram with image: {product.title[:30]}...")
-                                except Exception as img_error:
-                                    logger.warning(f"Failed to send image ({img_error}), falling back to text")
-                                    # Fallback to text message
-                                    try:
-                                        await self.bot.bot.send_message(
-                                            chat_id=self.config.TELEGRAM_CHANNEL,
-                                            text=message,
-                                            parse_mode="Markdown",
-                                            disable_web_page_preview=False
-                                        )
-                                        logger.info(f"✅ Posted to Telegram (text fallback): {product.title[:30]}...")
-                                    except Exception as text_error:
-                                        logger.error(f"Failed to send text message: {text_error}")
-                                        raise
-                            else:
-                                await self.bot.bot.send_message(
-                                    chat_id=self.config.TELEGRAM_CHANNEL,
-                                    text=message,
-                                    parse_mode="Markdown",
-                                    disable_web_page_preview=False
-                                )
-                                logger.info(f"✅ Posted to Telegram: {product.title[:30]}...")
-                        except Exception as telegram_error:
-                            logger.error(f"❌ Telegram posting error for {product.title[:30]}: {telegram_error}")
-                            import traceback
-                            logger.error(f"Traceback: {traceback.format_exc()}")
-                            # Continue to save to database even if Telegram fails
-                            pass
-                    
-                    # Save to database
-                    if self.db_manager:
-                        await self.db_manager.add_deal(
-                            product=product,
-                            affiliate_link=affiliate_link,
-                            source="scraper",
-                            content_style="enthusiastic"
-                        )
-                    
-                    posted_count += 1
-                    logger.info(f"✅ Posted deal: {product.title[:50]}...")
-                    
-                    # Rate limiting
-                    await asyncio.sleep(2)
-                    
-                except Exception as e:
-                    logger.error(f"Error posting deal {product.title}: {e}")
-                    continue
-            
+
+            pipeline = DealPipelineService(
+                db_manager=self.db_manager,
+                content_generator=content_generator,
+                affiliate_link_builder=self.config.get_affiliate_link,
+                telegram_client=self.bot.bot if self.bot else None,
+                telegram_channel=self.config.TELEGRAM_CHANNEL,
+                source="scraper",
+                content_style="enthusiastic",
+                dedupe_hours=2,
+            )
+            result = await pipeline.post_products(valid_deals)
+
             await content_generator.close()
-            logger.info(f"📢 Posted {posted_count} new deals with validated links")
-            return posted_count
+            logger.info(
+                f"📢 Pipeline cycle complete: fetched={result.fetched}, posted={result.posted}, "
+                f"deduped={result.deduped_out}, failed={result.failed}"
+            )
+            return result.posted
             
         except Exception as e:
             logger.error(f"Error posting deals: {e}")
@@ -367,12 +286,40 @@ class DealBotApplication:
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
 
+    async def test_mode(self):
+        """Run a lightweight diagnostics pass without starting long-running services."""
+        logger.info("🧪 Running diagnostics test mode...")
+
+        diagnostics = {
+            "config_valid": self.config.validate(),
+            "bot_configured": self.config.bot_configured,
+            "database_configured": self.config.database_configured,
+            "web_ready": self.web_app is not None,
+        }
+
+        if self.db_manager:
+            try:
+                stats = await self.db_manager.get_deal_stats()
+                diagnostics["database_connected"] = stats is not None
+            except Exception as db_error:
+                diagnostics["database_connected"] = False
+                logger.warning(f"Database diagnostics check failed: {db_error}")
+        else:
+            diagnostics["database_connected"] = False
+
+        for key, value in diagnostics.items():
+            logger.info(f"🔍 {key}: {value}")
+
 
 async def main():
     
     app = DealBotApplication()
     
     try:
+        if len(sys.argv) > 1 and sys.argv[1] == "--version-check":
+            print(f"Python version OK: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+            return 0
+
         # Initialize application
         if not await app.initialize():
             logger.error("❌ Failed to initialize application")
