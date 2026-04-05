@@ -28,14 +28,15 @@ logger = logging.getLogger(__name__)
 
 class AffiliateBot:
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, db_manager: Optional[Union[DatabaseManager, SimpleDatabaseManager]] = None):
         if not AIOGRAM_AVAILABLE:
             raise ImportError("aiogram is required for Telegram bot functionality")
         
         self.config = config
         self.bot: Optional[Bot] = None
         self.dp: Optional[Dispatcher] = None
-        self.db_manager: Optional[Union[DatabaseManager, SimpleDatabaseManager]] = None
+        self.db_manager: Optional[Union[DatabaseManager, SimpleDatabaseManager]] = db_manager
+        self.manage_db_lifecycle = db_manager is None
         self.content_generator: Optional[ContentGenerator] = None
         self.scraper: Optional[DealScraper] = None
         
@@ -48,10 +49,11 @@ class AffiliateBot:
         self.bot = Bot(token=self.config.BOT_TOKEN)
         self.dp = Dispatcher()
         
-        if self.config.database_configured:
-            self.db_manager = DatabaseManager(self.config.DATABASE_URL)
-        else:
-            self.db_manager = SimpleDatabaseManager()
+        if self.db_manager is None:
+            if self.config.database_configured:
+                self.db_manager = DatabaseManager(self.config.DATABASE_URL)
+            else:
+                self.db_manager = SimpleDatabaseManager()
         
         self.content_generator = ContentGenerator(self.config.OPENAI_API_KEY)
         
@@ -93,7 +95,8 @@ class AffiliateBot:
     
     async def initialize(self):
         try:
-            await self.db_manager.initialize()
+            if self.db_manager and self.manage_db_lifecycle:
+                await self.db_manager.initialize()
             await self.content_generator.initialize()
             await self.scraper.initialize()
             
@@ -121,7 +124,7 @@ class AffiliateBot:
                 await self.scraper.close()
             if self.content_generator:
                 await self.content_generator.close()
-            if self.db_manager:
+            if self.db_manager and self.manage_db_lifecycle:
                 await self.db_manager.close()
             if self.bot:
                 await self.bot.session.close()

@@ -87,7 +87,7 @@ class DealBotApplication:
             
             # Initialize Telegram bot
             if self.config.bot_configured:
-                self.bot = AffiliateBot(self.config)
+                self.bot = AffiliateBot(self.config, db_manager=self.db_manager)
                 await self.bot.initialize()
                 logger.info("🤖 Telegram bot initialized")
             else:
