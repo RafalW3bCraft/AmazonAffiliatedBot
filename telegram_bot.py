@@ -22,8 +22,10 @@ from database import DatabaseManager
 from database_simple import SimpleDatabaseManager
 from content_generator import ContentGenerator
 from scraper import DealScraper
+from services.deal_pipeline_service import DealPipelineService
 
 logger = logging.getLogger(__name__)
+TELEGRAM_RATE_LIMIT_SECONDS = 1.0
 
 
 class AffiliateBot:
@@ -599,29 +601,38 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
         try:
             # Get all active users
             users = await self.db_manager.get_active_users(days=30)
-            
-            sent_count = 0
-            failed_count = 0
-            
-            for user in users:
-                try:
-                    await self.bot.send_message(
-                        chat_id=user.user_id,
-                        text=f"📢 **Broadcast Message**\n\n{broadcast_message}",
-                        parse_mode="Markdown"
-                    )
-                    sent_count += 1
-                    await asyncio.sleep(0.1)  # Rate limiting
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to send broadcast to user {user.user_id}: {e}")
-                    failed_count += 1
+            sent_count, failed_count = await self._broadcast_with_rate_limit(
+                [user.user_id for user in users],
+                f"📢 **Broadcast Message**\n\n{broadcast_message}"
+            )
             
             await message.answer(f"✅ Broadcast sent!\n\n📤 Sent: {sent_count}\n❌ Failed: {failed_count}")
             
         except Exception as e:
             logger.error(f"Error in broadcast: {e}")
             await message.answer("❌ Error sending broadcast message.")
+
+    async def _broadcast_with_rate_limit(self, chat_ids: list[int], text: str) -> tuple[int, int]:
+        sent_count = 0
+        failed_count = 0
+
+        for index, chat_id in enumerate(chat_ids):
+            try:
+                await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode="Markdown"
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to send broadcast to user {chat_id}: {e}")
+                failed_count += 1
+
+            await asyncio.sleep(TELEGRAM_RATE_LIMIT_SECONDS)
+            if index > 0 and index % 25 == 0:
+                await asyncio.sleep(2.0)
+
+        return sent_count, failed_count
     
     # Callback Query Handlers
     
@@ -724,57 +735,23 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
             if not deals:
                 logger.info("ℹ️ No new deals found")
                 return 0
-            
-            posted_count = 0
-            
-            for product in deals:
-                try:
-                    # Check if deal already exists
-                    existing = await self.db_manager.get_deal_by_asin(product.asin)
-                    if existing:
-                        continue
-                    
-                    # Generate affiliate link
-                    affiliate_link = self.config.get_affiliate_link(product.link)
-                    
-                    # Generate content
-                    message = await self.content_generator.generate_telegram_message(
-                        product, affiliate_link
-                    )
-                    
-                    # Post to channel if configured
-                    if self.config.TELEGRAM_CHANNEL:
-                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="🛒 Get This Deal", url=affiliate_link)]
-                        ])
-                        
-                        await self.bot.send_message(
-                            chat_id=self.config.TELEGRAM_CHANNEL,
-                            text=message,
-                            reply_markup=keyboard,
-                            parse_mode="Markdown"
-                        )
-                    
-                    # Save to database
-                    await self.db_manager.add_deal(
-                        product=product,
-                        affiliate_link=affiliate_link,
-                        source="scraper",
-                        content_style="enthusiastic"
-                    )
-                    
-                    posted_count += 1
-                    logger.info(f"✅ Posted deal: {product.title[:50]}...")
-                    
-                    # Rate limiting
-                    await asyncio.sleep(2)
-                    
-                except Exception as e:
-                    logger.error(f"Error posting deal {product.title}: {e}")
-                    continue
-            
-            logger.info(f"📢 Posted {posted_count} new deals")
-            return posted_count
+
+            pipeline = DealPipelineService(
+                db_manager=self.db_manager,
+                content_generator=self.content_generator,
+                affiliate_link_builder=self.config.get_affiliate_link,
+                telegram_client=self.bot,
+                telegram_channel=self.config.TELEGRAM_CHANNEL,
+                source="scraper",
+                content_style="enthusiastic",
+                dedupe_hours=24,
+            )
+            result = await pipeline.post_products(deals)
+            logger.info(
+                f"📢 Pipeline cycle complete: fetched={result.fetched}, posted={result.posted}, "
+                f"deduped={result.deduped_out}, failed={result.failed}"
+            )
+            return result.posted
             
         except Exception as e:
             logger.error(f"Error in post_deals: {e}")

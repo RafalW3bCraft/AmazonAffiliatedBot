@@ -60,12 +60,16 @@ class AsyncDataManager:
         
     def execute_async(self, coro):
         if not self._loop or not self._initialized:
+            if hasattr(coro, "close"):
+                coro.close()
             return None
             
         try:
             future = asyncio.run_coroutine_threadsafe(coro, self._loop)
             return future.result(timeout=10)
         except Exception as e:
+            if hasattr(coro, "close"):
+                coro.close()
             logger.error(f"Async execution error: {e}")
             return None
 
