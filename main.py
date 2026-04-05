@@ -12,6 +12,10 @@ import dotenv
 # Load environment variables
 dotenv.load_dotenv()
 
+if sys.version_info < (3, 11):
+    print(f"[FATAL] Python 3.11+ required. Current: {sys.version_info.major}.{sys.version_info.minor}")
+    sys.exit(1)
+
 
 from config import Config
 from telegram_bot import AffiliateBot
@@ -87,7 +91,7 @@ class DealBotApplication:
             
             # Initialize Telegram bot
             if self.config.bot_configured:
-                self.bot = AffiliateBot(self.config)
+                self.bot = AffiliateBot(self.config, db_manager=self.db_manager)
                 await self.bot.initialize()
                 logger.info("🤖 Telegram bot initialized")
             else:
@@ -367,12 +371,40 @@ class DealBotApplication:
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
 
+    async def test_mode(self):
+        """Run a lightweight diagnostics pass without starting long-running services."""
+        logger.info("🧪 Running diagnostics test mode...")
+
+        diagnostics = {
+            "config_valid": self.config.validate(),
+            "bot_configured": self.config.bot_configured,
+            "database_configured": self.config.database_configured,
+            "web_ready": self.web_app is not None,
+        }
+
+        if self.db_manager:
+            try:
+                stats = await self.db_manager.get_deal_stats()
+                diagnostics["database_connected"] = stats is not None
+            except Exception as db_error:
+                diagnostics["database_connected"] = False
+                logger.warning(f"Database diagnostics check failed: {db_error}")
+        else:
+            diagnostics["database_connected"] = False
+
+        for key, value in diagnostics.items():
+            logger.info(f"🔍 {key}: {value}")
+
 
 async def main():
     
     app = DealBotApplication()
     
     try:
+        if len(sys.argv) > 1 and sys.argv[1] == "--version-check":
+            print(f"Python version OK: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+            return 0
+
         # Initialize application
         if not await app.initialize():
             logger.error("❌ Failed to initialize application")

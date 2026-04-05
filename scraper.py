@@ -141,8 +141,6 @@ class DealScraper:
         top_deals = [deal for deal, score in scored_deals[:self.max_deals_per_source * len(self.amazon_sources)]]
         
         logger.info(f"Returning {len(top_deals)} top-scored deals")
-        
-        logger.info(f"Returning {len(top_deals)} top-scored deals")
         return top_deals
     
     async def search_products_by_keyword(

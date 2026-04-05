@@ -35,6 +35,16 @@ A comprehensive Python-based Amazon affiliate marketing bot that automates deal 
   - Amazon Affiliate ID (from [Amazon Associates](https://affiliate-program.amazon.com/))
   - OpenAI API Key (optional, for AI content generation)
 
+## 🧭 Production Readiness Notes
+
+- This project depends on external services (Amazon pages, Telegram API, and optionally OpenAI + PostgreSQL).  
+- Network or provider failures can reduce functionality even when local code starts correctly.  
+- Run diagnostics before deployment:
+  - `python -m py_compile *.py`
+  - `python main.py test`
+  - `python main.py web`
+- There is currently no comprehensive automated test suite in the repository; add tests before production use.
+
 ---
 
 ## 🛠️ Installation
