@@ -28,14 +28,15 @@ logger = logging.getLogger(__name__)
 
 class AffiliateBot:
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, db_manager: Optional[Union[DatabaseManager, SimpleDatabaseManager]] = None):
         if not AIOGRAM_AVAILABLE:
             raise ImportError("aiogram is required for Telegram bot functionality")
         
         self.config = config
         self.bot: Optional[Bot] = None
         self.dp: Optional[Dispatcher] = None
-        self.db_manager: Optional[Union[DatabaseManager, SimpleDatabaseManager]] = None
+        self.db_manager: Optional[Union[DatabaseManager, SimpleDatabaseManager]] = db_manager
+        self.manage_db_lifecycle = db_manager is None
         self.content_generator: Optional[ContentGenerator] = None
         self.scraper: Optional[DealScraper] = None
         
@@ -48,10 +49,11 @@ class AffiliateBot:
         self.bot = Bot(token=self.config.BOT_TOKEN)
         self.dp = Dispatcher()
         
-        if self.config.database_configured:
-            self.db_manager = DatabaseManager(self.config.DATABASE_URL)
-        else:
-            self.db_manager = SimpleDatabaseManager()
+        if self.db_manager is None:
+            if self.config.database_configured:
+                self.db_manager = DatabaseManager(self.config.DATABASE_URL)
+            else:
+                self.db_manager = SimpleDatabaseManager()
         
         self.content_generator = ContentGenerator(self.config.OPENAI_API_KEY)
         
@@ -93,7 +95,8 @@ class AffiliateBot:
     
     async def initialize(self):
         try:
-            await self.db_manager.initialize()
+            if self.db_manager and self.manage_db_lifecycle:
+                await self.db_manager.initialize()
             await self.content_generator.initialize()
             await self.scraper.initialize()
             
@@ -121,7 +124,7 @@ class AffiliateBot:
                 await self.scraper.close()
             if self.content_generator:
                 await self.content_generator.close()
-            if self.db_manager:
+            if self.db_manager and self.manage_db_lifecycle:
                 await self.db_manager.close()
             if self.bot:
                 await self.bot.session.close()
@@ -168,20 +171,10 @@ Ready to save money? Use /deals to see current offers!
             
         except Exception as e:
             logger.error(f"Error in /start command: {e}")
-            await message.reply("Welcome! Use /deals to see current Amazon offers.")
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📱 Electronics", callback_data="category:electronics"),
-                 InlineKeyboardButton(text="🏠 Home", callback_data="category:home")],
-                [InlineKeyboardButton(text="👕 Fashion", callback_data="category:fashion"),
-                 InlineKeyboardButton(text="⚽ Sports", callback_data="category:sports")],
-                [InlineKeyboardButton(text="🛍️ All Categories", callback_data="category:all")]
-            ])
-            
-            await message.answer(welcome_msg, reply_markup=keyboard, parse_mode="Markdown")
-            
-        except Exception as e:
-            logger.error(f"Error in start command: {e}")
-            await message.answer("Welcome! I'll help you find the best Amazon deals! 🛍️")
+            try:
+                await message.reply("Welcome! Use /deals to see current Amazon offers.")
+            except Exception:
+                await message.answer("Welcome! I'll help you find the best Amazon deals! 🛍️")
     
     async def cmd_help(self, message):
         try:
@@ -516,7 +509,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
     async def cmd_admin(self, message):
         # Simple admin check - in production, use proper admin verification
         user_id = message.from_user.id
-        admin_ids = [int(x) for x in str(self.config.ADMIN_USER_IDS or "").split(",") if x.isdigit()]
+        admin_ids = self.config.ADMIN_USER_IDS or []
         
         if admin_ids and user_id not in admin_ids:
             await message.answer("❌ Access denied. Admin only.")
@@ -589,7 +582,7 @@ Select your preferred Amazon marketplace to get deals with correct pricing and l
     async def cmd_broadcast(self, message):
         # Simple admin check
         user_id = message.from_user.id
-        admin_ids = [int(x) for x in str(self.config.ADMIN_USER_IDS or "").split(",") if x.isdigit()]
+        admin_ids = self.config.ADMIN_USER_IDS or []
         
         if admin_ids and user_id not in admin_ids:
             await message.answer("❌ Access denied. Admin only.")
