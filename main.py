@@ -12,6 +12,10 @@ import dotenv
 # Load environment variables
 dotenv.load_dotenv()
 
+if sys.version_info < (3, 11):
+    print(f"[FATAL] Python 3.11+ required. Current: {sys.version_info.major}.{sys.version_info.minor}")
+    sys.exit(1)
+
 
 from config import Config
 from telegram_bot import AffiliateBot
@@ -256,6 +260,21 @@ class DealBotApplication:
             finally:
                 await content_generator.close()
 
+
+
+            pipeline = DealPipelineService(
+                db_manager=self.db_manager,
+                content_generator=content_generator,
+                affiliate_link_builder=self.config.get_affiliate_link,
+                telegram_client=self.bot.bot if self.bot else None,
+                telegram_channel=self.config.TELEGRAM_CHANNEL,
+                source="scraper",
+                content_style="enthusiastic",
+                dedupe_hours=2,
+            )
+            result = await pipeline.post_products(valid_deals)
+
+            await content_generator.close()
             logger.info(
                 f"📢 Pipeline cycle complete: fetched={result.fetched}, posted={result.posted}, "
                 f"deduped={result.deduped_out}, failed={result.failed}"
@@ -334,6 +353,9 @@ async def main():
                 f"⚠️ Running on Python {sys.version_info.major}.{sys.version_info.minor}. "
                 "Python 3.11+ is recommended."
             )
+
+            print(f"Python version OK: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+            return 0
 
         # Initialize application
         if not await app.initialize():
