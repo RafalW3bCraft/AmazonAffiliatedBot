@@ -12,6 +12,10 @@ import dotenv
 # Load environment variables
 dotenv.load_dotenv()
 
+if sys.version_info < (3, 11):
+    print(f"[FATAL] Python 3.11+ required. Current: {sys.version_info.major}.{sys.version_info.minor}")
+    sys.exit(1)
+
 
 from config import Config
 from telegram_bot import AffiliateBot
@@ -397,6 +401,10 @@ async def main():
     app = DealBotApplication()
     
     try:
+        if len(sys.argv) > 1 and sys.argv[1] == "--version-check":
+            print(f"Python version OK: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+            return 0
+
         # Initialize application
         if not await app.initialize():
             logger.error("❌ Failed to initialize application")

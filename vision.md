@@ -306,6 +306,59 @@ A release is production-ready when:
 - External dependency failures are observable and recoverable.
 - No duplicate/dead runtime artifacts remain.
 - Documentation reflects actual runtime behavior and known constraints.
+
+---
+
+## 12) AI Agent Task Memory (Imported from Requested Advanced Vision)
+
+This section captures the requested STAGE-based execution memory format:
+`STAGE > SCAN > ANALYZE > DEBUG > FIX > VERIFY > ITERATE`.
+
+### Current Stage Status
+
+- **STAGE 0 (Baseline integrity):** partial → in progress  
+  - Python version guard added.  
+  - Compile checks and test diagnostics available.  
+- **STAGE 1 (Duplicate pipeline elimination):** in progress  
+  - Shared DB manager injection active between `main.py` and `telegram_bot.py`.  
+- **STAGE 2 (Contracts/errors/enums):** started  
+  - Added `core/errors.py`, `core/enums.py`, and `ports/repository.py`.  
+- **STAGE 3 (Observability):** started  
+  - Added `core/telemetry.py`, scheduler heartbeat metric, and health metrics exposure.  
+- **STAGE 4 (Tests and quality gates):** partial  
+  - Baseline tests present and passing.  
+- **STAGE 5+ (hardening/CI):** pending
+
+### Task Memory Index (Condensed)
+
+| Task ID | Stage | Action | Status |
+|---|---|---|---|
+| T-01 | 0 | Add Python 3.11+ version guard | ✅ Complete |
+| T-02 | 0 | Full module compile checks | ✅ Complete |
+| T-03 | 0 | Ensure diagnostics `test_mode` works | ✅ Complete |
+| T-04 | 0 | Remove `dashboard_old.js` legacy file | ✅ Complete |
+| T-05 | 1 | Create canonical pipeline service | ⏳ Pending |
+| T-06 | 1 | Single DB manager lifecycle per process | ✅ Partial/Active |
+| T-07 | 2 | Add repository protocol | ✅ Complete |
+| T-08 | 2 | Add typed error hierarchy | ✅ Complete |
+| T-09 | 2 | Add canonical enums | ✅ Complete |
+| T-10 | 3 | Structured correlation logging | ⏳ Pending |
+| T-11 | 3 | Metrics counters and health exposure | ✅ Partial/Active |
+| T-12 | 3 | AsyncDataManager graceful stop | ✅ Complete |
+| T-13 | 4 | Pytest infrastructure | ✅ Complete |
+| T-14 | 4 | Link validation/config tests | ✅ Partial/Active |
+| T-15 | 4 | Scraper parsing tests | ⏳ Pending |
+| T-16 | 4 | Pipeline integration tests | ⏳ Pending |
+| T-17 | 4 | API smoke tests | ⏳ Pending |
+| T-18 | 5 | Circuit breaker for external APIs | ⏳ Pending |
+| T-19 | 5 | Scheduler watchdog heartbeat | ✅ Complete |
+| T-20 | 5 | Broadcast rate limiting strategy | ⏳ Pending |
+| T-21 | 5 | `example.env` required/optional docs | ⏳ Pending |
+| T-22 | 6 | Ruff + Black + Mypy checks | ⏳ Pending |
+| T-23 | 6 | CI workflow file | ⏳ Pending |
+| T-24 | 7 | Full multi-mode boot verification | ⏳ Pending |
+| T-25 | 7 | Regression script for known bugs | ⏳ Pending |
+=======
 =======
 # AmazonAffiliatedBot — Architecture Audit, Stabilization Plan, and Product Vision
 

@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from config import Config
+from core.telemetry import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,11 @@ class TaskScheduler:
             logger.info("⏰ Starting task scheduler...")
             
             async with asyncio.TaskGroup() as tg:
+                watchdog_task = tg.create_task(
+                    self._watchdog_loop()
+                )
+                self.tasks.append(watchdog_task)
+
                 deal_posting_task = tg.create_task(
                     self._schedule_deal_posting()
                 )
@@ -49,6 +55,7 @@ class TaskScheduler:
         self.running = True
         
         tasks = [
+            asyncio.create_task(self._watchdog_loop()),
             asyncio.create_task(self._schedule_deal_posting()),
             asyncio.create_task(self._schedule_database_cleanup()),
             asyncio.create_task(self._schedule_stats_update())
@@ -83,6 +90,7 @@ class TaskScheduler:
         
         while self.running:
             try:
+                metrics.increment("scheduler.deal_posting_runs")
                 logger.info("🔄 Starting scheduled deal posting...")
                 
                 posted_count = await self.bot.post_deals()
@@ -109,6 +117,7 @@ class TaskScheduler:
         
         while self.running:
             try:
+                metrics.increment("scheduler.cleanup_runs")
                 logger.info("🧹 Starting scheduled database cleanup...")
                 
                 deleted_count = await self.bot.db_manager.cleanup_old_deals(days=30)
@@ -133,6 +142,7 @@ class TaskScheduler:
         await asyncio.sleep(120)
         while self.running:
             try:
+                metrics.increment("scheduler.stats_runs")
                 logger.info("📊 Updating statistics...")
                 stats = await self.bot.db_manager.get_deal_stats()
                 if stats:
@@ -145,6 +155,12 @@ class TaskScheduler:
             except Exception as e:
                 logger.error(f"Error in scheduled stats update: {e}")
                 await asyncio.sleep(1800)
+
+    async def _watchdog_loop(self, interval: int = 300):
+        """Emit scheduler heartbeat metric to detect dead loops."""
+        while self.running:
+            metrics.increment("scheduler.heartbeat")
+            await asyncio.sleep(interval)
     
     async def run_immediate_task(self, task_name: str) -> bool:
         
