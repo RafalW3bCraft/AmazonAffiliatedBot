@@ -260,21 +260,6 @@ class DealBotApplication:
             finally:
                 await content_generator.close()
 
-
-
-            pipeline = DealPipelineService(
-                db_manager=self.db_manager,
-                content_generator=content_generator,
-                affiliate_link_builder=self.config.get_affiliate_link,
-                telegram_client=self.bot.bot if self.bot else None,
-                telegram_channel=self.config.TELEGRAM_CHANNEL,
-                source="scraper",
-                content_style="enthusiastic",
-                dedupe_hours=2,
-            )
-            result = await pipeline.post_products(valid_deals)
-
-            await content_generator.close()
             logger.info(
                 f"📢 Pipeline cycle complete: fetched={result.fetched}, posted={result.posted}, "
                 f"deduped={result.deduped_out}, failed={result.failed}"
@@ -319,12 +304,19 @@ class DealBotApplication:
         }
 
         if self.db_manager:
+            backend = "postgresql" if isinstance(self.db_manager, DatabaseManager) else "in-memory"
+            diagnostics["database_backend"] = backend
             try:
                 stats = await self.db_manager.get_deal_stats()
                 diagnostics["database_connected"] = stats is not None
             except Exception as db_error:
                 diagnostics["database_connected"] = False
                 logger.warning(f"Database diagnostics check failed: {db_error}")
+            if backend == "in-memory" and self.config.database_configured:
+                logger.warning(
+                    "DATABASE_URL is configured but the app is running on the in-memory "
+                    "fallback - diagnostics above reflect the fallback, not PostgreSQL"
+                )
         else:
             diagnostics["database_connected"] = False
 

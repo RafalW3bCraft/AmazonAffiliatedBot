@@ -1,4 +1,4 @@
-from web_dashboard_clean import safe_int, safe_float, sanitize_string
+from web_dashboard_clean import safe_float, safe_int, sanitize_string
 
 
 def test_safe_int_guards_invalid_and_negative_values():

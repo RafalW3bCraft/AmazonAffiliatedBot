@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}DealPilot{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/dealpilot.css') }}" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<main class="dp-wrap">
+  <h1 class="dp-title">DealPilot AI Commerce</h1>
+  <section class="dp-lanes" aria-label="Shopping lanes">
+    <p><strong>Lane 1: Merchant store - buy with PayPal sandbox.</strong></p>
+    <p><strong>Lane 2: Amazon deals - external affiliate links, checkout on Amazon.</strong></p>
+  </section>
+  <p><a class="dp-btn dp-btn-primary" href="{{ url_for('commerce.shop') }}">Enter the shop</a></p>
+  <p><a href="/">Existing bot dashboard</a></p>
+</main>
+{% endblock %}

@@ -1,14 +1,44 @@
+import functools
 import logging
 import asyncio
 import threading
 import atexit
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, abort
 from config import Config
 from database_simple import SimpleDatabaseManager
 from core.telemetry import metrics
 
 logger = logging.getLogger(__name__)
+
+
+def require_dashboard_auth(config: Config):
+    """Decorator factory: protect privileged routes with DASHBOARD_TOKEN.
+
+    Token is accepted via `Authorization: Bearer <token>` header or `?token=`
+    query param (for the HTML pages). When no token is configured and the app
+    is not in DEMO_MODE, privileged routes are disabled (404) rather than open.
+    """
+    def decorator(view):
+        @functools.wraps(view)
+        def wrapper(*args, **kwargs):
+            token = getattr(config, 'DASHBOARD_TOKEN', '')
+            demo = getattr(config, 'DEMO_MODE', False)
+            if not token:
+                if demo:
+                    return view(*args, **kwargs)  # demo mode: open, clearly labeled in UI
+                abort(404)  # fail closed: privileged route disabled
+            provided = request.headers.get('Authorization', '')
+            if provided.startswith('Bearer '):
+                provided = provided[7:]
+            else:
+                provided = request.args.get('token', '')
+            import hmac
+            if not provided or not hmac.compare_digest(provided, token):
+                return jsonify({'error': 'authentication required'}), 401
+            return view(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 class AsyncDataManager:
@@ -142,16 +172,44 @@ def sanitize_string(value, max_length=100, allowed_chars=None):
 
 def create_app(config: Config):
     app = Flask(__name__)
-    app.config['SECRET_KEY'] = getattr(config, 'FLASK_SECRET_KEY', 'dev-key-change-in-production')
-    
+    # Config validates FLASK_SECRET_KEY at construction (fail-closed); no insecure
+    # fallback is permitted here.
+    app.config['SECRET_KEY'] = config.FLASK_SECRET_KEY
+
+    # Session cookie hardening (DealPilot web layer).
+    try:
+        from web.auth import apply_security
+        apply_security(app)
+    except Exception as e:
+        logger.warning(f"apply_security failed: {e}")
+
     data_manager = AsyncDataManager(config)
     data_manager.start()
     atexit.register(data_manager.stop)
-    
+
     setattr(app, 'data_manager', data_manager)
+
+    auth = require_dashboard_auth(config)
+
+    # Register the commerce blueprint (DealPilot two-lane shop) when enabled.
+    if getattr(config, 'ENABLE_MERCHANT_CHECKOUT', False) or getattr(config, 'ENABLE_EXTERNAL_AFFILIATE', False):
+        try:
+            from web.commerce_routes import create_commerce_blueprint
+            commerce_bp = create_commerce_blueprint(config)
+            app.register_blueprint(commerce_bp)
+            logger.info("Commerce blueprint registered (/shop, /cart, /checkout, /orders, /merchant)")
+        except Exception as e:
+            logger.error(f"Commerce blueprint registration failed: {e}")
+            if not getattr(config, 'DEMO_MODE', False):
+                raise
     
     @app.route('/')
-    def dashboard():
+    def landing():
+        if getattr(config, 'ENABLE_MERCHANT_CHECKOUT', False) or getattr(config, 'ENABLE_EXTERNAL_AFFILIATE', False):
+            try:
+                return render_template('landing.html')
+            except Exception:
+                pass
         return render_template('dashboard.html')
     
     @app.route('/deals')
@@ -159,6 +217,7 @@ def create_app(config: Config):
         return render_template('deals.html')
     
     @app.route('/users')
+    @auth
     def users_page():
         return render_template('users.html')
     
@@ -167,21 +226,7 @@ def create_app(config: Config):
         try:
             data_manager = getattr(app, 'data_manager', None)
             if not data_manager or not data_manager.db_manager:
-                return jsonify({
-                    'error': 'Database not available',
-                    'total_deals': 0,
-                    'recent_deals': 0,
-                    'total_clicks': 0,
-                    'total_conversions': 0,
-                    'total_earnings': 0.0,
-                    'active_users': 0,
-                    'conversion_rate': 0.0,
-                    'avg_earnings_per_deal': 0.0,
-                    'avg_earnings_per_click': 0.0,
-                    'category_stats': {},
-                    'source_stats': {},
-                    'timestamp': datetime.now().isoformat()
-                }), 200
+                return jsonify({'error': 'Database not available'}), 503
             
             total_deals = 0
             recent_count = 0
@@ -267,21 +312,7 @@ def create_app(config: Config):
             import traceback
             logger.error(f"Stats API traceback: {traceback.format_exc()}")
             
-            return jsonify({
-                'error': 'Statistics temporarily unavailable',
-                'total_deals': 0,
-                'recent_deals': 0,
-                'total_clicks': 0,
-                'total_conversions': 0,
-                'total_earnings': 0.0,
-                'active_users': 0,
-                'conversion_rate': 0.0,
-                'avg_earnings_per_deal': 0.0,
-                'avg_earnings_per_click': 0.0,
-                'category_stats': {},
-                'source_stats': {},
-                'timestamp': datetime.now().isoformat()
-            }), 200
+            return jsonify({'error': 'Statistics temporarily unavailable'}), 503
     
     @app.route('/api/deals')
     def api_deals():
@@ -337,66 +368,104 @@ def create_app(config: Config):
             return jsonify([])
     
     @app.route('/api/users')
+    @auth
     def api_users():
+        """Privileged endpoint: data-minimized aggregates only, no PII."""
         try:
             days = safe_int(request.args.get('days', 30), 30)
-            
+
             data_manager = getattr(app, 'data_manager', None)
             if not data_manager or not data_manager.db_manager:
-                return jsonify([])
-            
+                return jsonify({'error': 'Database not available'}), 503
+
             users = data_manager.execute_async(
                 data_manager.db_manager.get_active_users(days=days)
             )
-            
+
             if not users:
-                return jsonify([])
-            
-            users_data = []
+                return jsonify({'active_users': 0, 'regions': {}, 'categories': {}, 'window_days': days})
+
+            regions: dict = {}
+            categories: dict = {}
             for user in users:
                 try:
-                    user_dict = {
-                        'id': getattr(user, 'id', None),
-                        'user_id': safe_int(getattr(user, 'user_id', 0)),
-                        'username': getattr(user, 'username', None),
-                        'first_name': getattr(user, 'first_name', None),
-                        'last_name': getattr(user, 'last_name', None),
-                        'category': str(getattr(user, 'category', 'all') or 'all'),
-                        'region': str(getattr(user, 'region', 'US') or 'US'),
-                        'total_clicks': safe_int(getattr(user, 'total_clicks', 0)),
-                        'total_conversions': safe_int(getattr(user, 'total_conversions', 0)),
-                        'total_earnings': safe_float(getattr(user, 'total_earnings', 0.0)),
-                        'joined_at': getattr(user, 'joined_at', None).isoformat() if getattr(user, 'joined_at', None) else None,
-                        'last_seen': getattr(user, 'last_seen', None).isoformat() if getattr(user, 'last_seen', None) else None,
-                        'is_active': bool(getattr(user, 'is_active', True))
-                    }
-                    users_data.append(user_dict)
+                    region = str(getattr(user, 'region', 'US') or 'US')
+                    category = str(getattr(user, 'category', 'all') or 'all')
+                    regions[region] = regions.get(region, 0) + 1
+                    categories[category] = categories.get(category, 0) + 1
                 except Exception as e:
-                    logger.error(f"Error processing user: {e}")
+                    logger.error(f"Error aggregating user: {e}")
                     continue
-            
-            return jsonify(users_data)
-            
+
+            return jsonify({
+                'active_users': len(users),
+                'regions': regions,
+                'categories': categories,
+                'window_days': days,
+            })
+
         except Exception as e:
             logger.error(f"Users API error: {e}")
-            return jsonify([])
+            return jsonify({'error': 'User statistics temporarily unavailable'}), 503
     
     @app.route('/api/config')
     def api_config():
+        """Public, non-sensitive configuration. No affiliate IDs, no secrets,
+        no merchant credentials - masked capability flags only."""
         try:
             return jsonify({
-                'amazon_affiliate_id': config.AMAZON_AFFILIATE_ID,
                 'supported_regions': config.get_supported_regions() if hasattr(config, 'get_supported_regions') else ['US'],
                 'default_region': getattr(config, 'DEFAULT_REGION', 'US'),
-                'bot_configured': getattr(config, 'bot_configured', False),
-                'openai_configured': getattr(config, 'openai_configured', False),
-                'database_configured': getattr(config, 'database_configured', False),
+                'bot_configured': bool(getattr(config, 'bot_configured', False)),
+                'ai_configured': bool(getattr(config, 'ai_configured', False)),
+                'database_configured': bool(getattr(config, 'database_configured', False)),
+                'merchant_checkout_enabled': bool(getattr(config, 'ENABLE_MERCHANT_CHECKOUT', False)),
+                'external_affiliate_enabled': bool(getattr(config, 'ENABLE_EXTERNAL_AFFILIATE', False)),
+                'demo_mode': bool(getattr(config, 'DEMO_MODE', False)),
                 'post_interval_hours': getattr(config, 'POST_INTERVAL_HOURS', 1),
-                'version': '2.0.0-production'
+                'version': '3.0.0-dealpilot'
             })
         except Exception as e:
             logger.error(f"Config API error: {e}")
             return jsonify({'error': 'Configuration unavailable'}), 500
+
+    @app.route('/api/ready')
+    def api_ready():
+        """Readiness: fails (503) unless every enabled feature's hard dependency
+        is available. Distinct from /api/health which reports liveness."""
+        checks = {}
+        ready = True
+
+        data_manager = getattr(app, 'data_manager', None)
+        db_ok = False
+        if data_manager and getattr(data_manager, 'db_manager', None) is not None:
+            try:
+                db_ok = data_manager.execute_async(data_manager.db_manager.get_deal_stats()) is not None
+            except Exception:
+                db_ok = False
+        checks['database'] = db_ok
+
+        if getattr(config, 'ENABLE_MERCHANT_CHECKOUT', False):
+            try:
+                from commerce.storage import CommerceStorage
+                storage = getattr(app, 'commerce_storage', None)
+                checks['commerce_storage'] = bool(storage and storage.ready())
+                if not checks['commerce_storage']:
+                    ready = False
+            except Exception:
+                checks['commerce_storage'] = False
+                ready = False
+
+        checks['paypal_credentials_present'] = bool(getattr(config, 'paypal_configured', False))
+        if getattr(config, 'ENABLE_MERCHANT_CHECKOUT', False) and not checks['paypal_credentials_present']:
+            ready = False  # checkout enabled without credentials is not ready
+
+        status = 200 if ready else 503
+        return jsonify({
+            'ready': ready,
+            'checks': checks,
+            'timestamp': datetime.now().isoformat()
+        }), status
     
     @app.route('/api/health')
     def api_health():

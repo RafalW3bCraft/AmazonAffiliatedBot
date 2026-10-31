@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Order {{ order.masked_id }}{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/dealpilot.css') }}" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<main class="dp-wrap">
+  <h1 class="dp-title">{% if receipt %}Receipt{% else %}Order status{% endif %}</h1>
+  <p class="dp-status dp-status-{{ order.status|lower }}">
+    <span class="dp-badge">{{ order.status_label }}</span>
+  </p>
+  <dl class="dp-dl">
+    <dt>Order</dt><dd>{{ order.masked_id }}</dd>
+    {% if order.amount %}<dt>Amount</dt><dd>{{ order.amount }} {{ order.currency }}</dd>{% endif %}
+    {% if order.capture_id %}<dt>Capture id</dt><dd>{{ order.capture_id }}</dd>{% endif %}
+    {% if order.verified %}<dt>Verified at</dt><dd>{{ order.verified_at }}</dd>{% endif %}
+    {% if order.created_at %}<dt>Created</dt><dd>{{ order.created_at }}</dd>{% endif %}
+    {% if order.updated_at %}<dt>Updated</dt><dd>{{ order.updated_at }}</dd>{% endif %}
+  </dl>
+  {% if pending %}<p class="dp-notice">Payment is pending at PayPal. Check back shortly.</p>{% endif %}
+  <p class="dp-sandbox">{{ order.sandbox_note }}</p>
+  <p><a href="{{ url_for('commerce.shop') }}">Back to shop</a></p>
+</main>
+{% endblock %}

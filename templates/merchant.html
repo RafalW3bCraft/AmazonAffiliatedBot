@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Merchant dashboard{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/dealpilot.css') }}" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<main class="dp-wrap">
+  <h1 class="dp-title">Merchant dashboard</h1>
+  {% if demo_mode %}
+  <p class="dp-demo-banner" role="note">DEMO MODE - merchant dashboard is open without a token.</p>
+  {% endif %}
+  <p class="dp-sandbox">{{ sandbox_note }}</p>
+  <p class="dp-fulfillment">{{ fulfillment }}</p>
+
+  <section aria-label="Funnel stats">
+    <h2>Funnel</h2>
+    <p>Paid sandbox GMV: <strong>{{ gmv }} {{ stats.currency or 'USD' }}</strong></p>
+    <p>Abandoned carts: <strong>{{ stats.abandoned_carts or 0 }}</strong></p>
+    <table class="dp-table">
+      <thead><tr><th>Status</th><th>Count</th></tr></thead>
+      <tbody>
+        {% for status, count in by_status_items %}
+        <tr><td>{{ status }}</td><td>{{ count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-label="Orders">
+    <h2>Orders</h2>
+    <table class="dp-table">
+      <thead>
+        <tr><th>Order</th><th>Status</th><th>Amount</th><th>Capture</th><th>Created</th></tr>
+      </thead>
+      <tbody>
+        {% for o in orders %}
+        <tr>
+          <td>{{ o.masked_id }}</td>
+          <td>{{ o.status_label }}</td>
+          <td>{{ o.amount }} {{ o.currency }}</td>
+          <td>{{ o.capture_id }}</td>
+          <td>{{ o.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-label="Agent sessions">
+    <h2>Recent assistant sessions (redacted)</h2>
+    <table class="dp-table">
+      <thead><tr><th>Actor</th><th>Model</th><th>Input hash</th><th>Time</th></tr></thead>
+      <tbody>
+        {% for s in sessions %}
+        <tr><td>{{ s.actor_id }}</td><td>{{ s.model }}</td><td>{{ s.input_hash }}</td><td>{{ s.created_at }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</main>
+{% endblock %}

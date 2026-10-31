@@ -1,8 +1,9 @@
 import asyncio
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock
 
-from services.deal_pipeline_service import DealPipelineService, PipelineResult
 from models import Product
+from services.deal_pipeline_service import DealPipelineService, PipelineResult
 
 
 def test_pipeline_happy_path_posts_one_deal():
@@ -45,8 +46,8 @@ def test_pipeline_happy_path_posts_one_deal():
 
 def test_pipeline_skips_recent_duplicate():
     existing = MagicMock()
-    from datetime import datetime, timezone
-    existing.posted_at = datetime.now(timezone.utc)
+    from datetime import datetime
+    existing.posted_at = datetime.now(UTC)
 
     db = AsyncMock()
     db.get_deal_by_asin.return_value = existing
