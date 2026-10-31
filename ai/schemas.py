@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,8 +13,8 @@ class ShopIntent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    budget_max: Optional[Decimal] = None
-    category: Optional[str] = None
+    budget_max: Decimal | None = None
+    category: str | None = None
     locale: str = "en"
     raw_query: str = Field(default="", max_length=500)
 

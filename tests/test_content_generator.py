@@ -10,7 +10,6 @@ import pytest
 from content_generator import ContentGenerator
 from models import Product
 
-
 ENV_VARS = ("OPENAI_API_KEY", "FEATHERLESS_API_KEY", "FEATHERLESS_BASE_URL", "AI_MODEL")
 
 

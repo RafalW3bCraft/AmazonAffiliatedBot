@@ -97,7 +97,7 @@ def quote_vm(quote):
             try:
                 line = Decimal(str(unit)) * qty
             except (InvalidOperation, ValueError, TypeError):
-                line = Decimal('0')
+                line = Decimal(0)
         items.append({
             'sku': str(_get(it, 'sku', '')),
             'title': str(_get(it, 'title', '')),

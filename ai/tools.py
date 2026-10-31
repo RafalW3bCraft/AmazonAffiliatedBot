@@ -11,7 +11,7 @@ changes. Any unknown SKU raises :class:`ToolError`.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 class ToolError(Exception):
@@ -30,12 +30,12 @@ class CatalogProtocol(Protocol):
     def search_products(
         self,
         query: str,
-        category: Optional[str] = None,
-        budget_max: Optional[Decimal] = None,
+        category: str | None = None,
+        budget_max: Decimal | None = None,
         limit: int = 8,
     ) -> list[Any]: ...
 
-    def get_product(self, sku: str) -> Optional[Any]: ...
+    def get_product(self, sku: str) -> Any | None: ...
 
 
 def _product_to_dict(product: Any) -> dict:
@@ -63,8 +63,8 @@ class CatalogTools:
     def catalog_search(
         self,
         query: str,
-        category: Optional[str] = None,
-        budget_max: Optional[Decimal] = None,
+        category: str | None = None,
+        budget_max: Decimal | None = None,
         limit: int = 8,
     ) -> list[dict]:
         """Search active products. Returns plain dicts (JSON-safe)."""
@@ -75,7 +75,7 @@ class CatalogTools:
         )
         return [_product_to_dict(p) for p in products]
 
-    def get_product(self, sku: str) -> Optional[dict]:
+    def get_product(self, sku: str) -> dict | None:
         """Fetch one product by SKU. None if not found."""
         product = self._catalog.get_product(sku)
         if product is None:
@@ -102,8 +102,8 @@ class CatalogTools:
         Raises ToolError on unknown SKU, bad quantity, or mixed currencies.
         """
         lines: list[dict] = []
-        total = Decimal("0")
-        currency: Optional[str] = None
+        total = Decimal(0)
+        currency: str | None = None
         for entry in items:
             sku = str(entry.get("sku", ""))
             try:

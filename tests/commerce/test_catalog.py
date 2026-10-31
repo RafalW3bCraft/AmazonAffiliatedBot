@@ -30,7 +30,7 @@ def test_loads_eight_valid_products(catalog):
         assert p.active is True
         assert p.version >= 1
         assert p.stock >= 0
-        assert p.price > Decimal("0")
+        assert p.price > Decimal(0)
         assert p.rights_evidence
 
 

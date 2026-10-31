@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -10,7 +10,6 @@ import pytest
 from commerce.cart_service import CartService
 from commerce.catalog import Catalog
 from commerce.checkout_service import (
-    APPROVED,
     AWAITING_BUYER_APPROVAL,
     CAPTURE_PENDING,
     FAILED,
@@ -44,7 +43,7 @@ class FakeConfig:
 
 class MutableClock:
     def __init__(self):
-        self.now = datetime(2026, 10, 30, 12, 0, 0, tzinfo=timezone.utc)
+        self.now = datetime(2026, 10, 30, 12, 0, 0, tzinfo=UTC)
 
     def __call__(self):
         return self.now

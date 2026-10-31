@@ -9,7 +9,7 @@ migrations/001_commerce.sql on init.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -23,7 +23,6 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
     create_engine,
     func,
     select,
@@ -256,7 +255,7 @@ class CommerceStorage:
             currency=row.currency,
             items=[QuoteLine.model_validate(i) for i in raw_items],
             total=row.total,
-            expires_at=row.expires_at.replace(tzinfo=timezone.utc)
+            expires_at=row.expires_at.replace(tzinfo=UTC)
             if row.expires_at.tzinfo is None
             else row.expires_at,
             status=row.status,
@@ -327,7 +326,7 @@ class CommerceStorage:
                 if row is None:
                     return False
                 row.status = new_status
-                row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                row.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 return True
             from sqlalchemy import update
 
@@ -339,7 +338,7 @@ class CommerceStorage:
                 )
                 .values(
                     status=new_status,
-                    updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                    updated_at=datetime.now(UTC).replace(tzinfo=None),
                 )
             )
             return getattr(result, "rowcount", 0) == 1

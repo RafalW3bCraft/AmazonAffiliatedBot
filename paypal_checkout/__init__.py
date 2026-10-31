@@ -10,10 +10,10 @@ from .errors import (
 )
 
 __all__ = [
+    "PayPalAmbiguousError",
+    "PayPalApiError",
+    "PayPalAuthError",
     "PayPalClient",
     "PayPalError",
-    "PayPalAuthError",
-    "PayPalApiError",
     "PayPalTimeoutError",
-    "PayPalAmbiguousError",
 ]

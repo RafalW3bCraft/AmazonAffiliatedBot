@@ -7,7 +7,7 @@ The gateway is injected (any object with create_order/get_order/capture_order)
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .cart_service import CartService
 from .exceptions import (
@@ -53,7 +53,7 @@ TERMINAL = (FAILED, CANCELED)
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class GatewayTimeout(Exception):
@@ -80,7 +80,7 @@ class CheckoutService:
 
     @staticmethod
     def _request_id(quote_id: str, buyer_id: str) -> str:
-        return hashlib.sha256(f"{quote_id}:{buyer_id}".encode("utf-8")).hexdigest()
+        return hashlib.sha256(f"{quote_id}:{buyer_id}".encode()).hexdigest()
 
     def _transition(self, attempt_id: int, current: str, new: str) -> None:
         if new not in ALLOWED.get(current, ()):

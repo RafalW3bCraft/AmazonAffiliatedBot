@@ -10,8 +10,8 @@ import httpx
 import pytest
 
 from paypal_checkout import (
-    PayPalApiError,
     PayPalAmbiguousError,
+    PayPalApiError,
     PayPalAuthError,
     PayPalClient,
     PayPalTimeoutError,

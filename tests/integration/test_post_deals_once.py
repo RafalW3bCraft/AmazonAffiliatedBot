@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 from models import Product
 
-
 FAKE_PRODUCTS = [
     Product(
         title="Product One",

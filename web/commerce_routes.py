@@ -14,20 +14,26 @@ import json
 import logging
 import threading
 import time
-import uuid
-from datetime import datetime, timezone
-from decimal import Decimal
 from urllib.parse import urlparse
 
 import httpx
 from flask import (
-    Blueprint, current_app, jsonify, redirect, render_template, request,
-    session, url_for,
+    Blueprint,
+    current_app,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    url_for,
 )
 
 from web import views as vm
 from web.auth import (
-    csrf_token, current_actor_id, ensure_actor, is_merchant, require_merchant,
+    csrf_token,
+    current_actor_id,
+    ensure_actor,
+    is_merchant,
+    require_merchant,
     verify_csrf,
 )
 

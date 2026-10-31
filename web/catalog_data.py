@@ -12,7 +12,7 @@ import re
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -190,8 +190,8 @@ class InMemoryCommerceStorage:
                 'request_id': request_id,
                 'paypal_order_id': None,
                 'status': 'ORDER_CREATED',
-                'created_at': datetime.now(timezone.utc),
-                'updated_at': datetime.now(timezone.utc),
+                'created_at': datetime.now(UTC),
+                'updated_at': datetime.now(UTC),
             }
             self.attempts[attempt_id] = row
             return dict(row)
@@ -201,7 +201,7 @@ class InMemoryCommerceStorage:
             a = self.attempts.get(attempt_id)
             if a:
                 a['paypal_order_id'] = paypal_order_id
-                a['updated_at'] = datetime.now(timezone.utc)
+                a['updated_at'] = datetime.now(UTC)
 
     def get_attempt(self, key):
         with self._lock:
@@ -217,7 +217,7 @@ class InMemoryCommerceStorage:
             a = self.attempts.get(attempt_id)
             if a:
                 a['status'] = status
-                a['updated_at'] = datetime.now(timezone.utc)
+                a['updated_at'] = datetime.now(UTC)
 
     def record_capture(self, attempt_id, capture_id, amount, currency, status, verified_at=None):
         with self._lock:
@@ -253,7 +253,7 @@ class InMemoryCommerceStorage:
                 'event_type': event_type,
                 'verification_result': verification_result,
                 'processing_state': processing_state,
-                'received_at': datetime.now(timezone.utc),
+                'received_at': datetime.now(UTC),
             }
             return True
 
@@ -274,7 +274,7 @@ class InMemoryCommerceStorage:
                 by_status[a['status']] = by_status.get(a['status'], 0) + 1
             verified_total = sum(
                 (c['amount'] for c in self.captures.values() if c.get('verified_at')),
-                Decimal('0'),
+                Decimal(0),
             )
             abandoned = by_status.get('AWAITING_BUYER_APPROVAL', 0) + by_status.get('ORDER_CREATED', 0)
             return {
@@ -293,7 +293,7 @@ class InMemoryCommerceStorage:
                 'input_hash': input_hash,
                 'output_redacted': output_redacted,
                 'approved_quote_id': approved_quote_id,
-                'created_at': datetime.now(timezone.utc),
+                'created_at': datetime.now(UTC),
             })
 
     def list_agent_sessions(self, limit=20):
@@ -322,7 +322,7 @@ class SimpleCartService:
         if len(items) > 10:
             raise ValueError('too many distinct items (max 10)')
         lines = []
-        total = Decimal('0')
+        total = Decimal(0)
         currency = 'USD'
         for it in items:
             sku = str(it.get('sku', ''))
@@ -360,9 +360,9 @@ class SimpleCartService:
             'items': lines,
             'total': total.quantize(Decimal('0.01')),
             'status': 'OPEN',
-            'expires_at': datetime.now(timezone.utc) + timedelta(minutes=self.ttl_minutes),
+            'expires_at': datetime.now(UTC) + timedelta(minutes=self.ttl_minutes),
             'version': 1,
-            'created_at': datetime.now(timezone.utc),
+            'created_at': datetime.now(UTC),
         }
         self.storage.create_quote(quote)
         return quote
@@ -374,9 +374,9 @@ class SimpleCartService:
         if row.get('status') != 'OPEN':
             raise QuoteNotOpen(str(row.get('status')))
         expires = row.get('expires_at')
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if expires is not None:
-            exp = expires if getattr(expires, 'tzinfo', None) else expires.replace(tzinfo=timezone.utc)
+            exp = expires if getattr(expires, 'tzinfo', None) else expires.replace(tzinfo=UTC)
             if now > exp:
                 self.storage.update_quote_status(quote_id, 'EXPIRED')
                 raise QuoteExpired(quote_id)
@@ -406,7 +406,7 @@ class DeterministicAI:
         self._lock = threading.Lock()
 
     def _rate_ok(self, actor_id):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with self._lock:
             calls = [t for t in self._buckets.get(actor_id, []) if (now - t).total_seconds() < 60]
             if len(calls) >= 10:

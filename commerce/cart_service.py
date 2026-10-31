@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .catalog import Catalog
 from .exceptions import CartError, QuoteExpired, QuoteNotFound, QuoteNotOpen, QuoteStale
@@ -13,7 +13,7 @@ from .storage import CommerceStorage
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class CartService:

@@ -15,7 +15,6 @@ from ai.agent import AIShoppingService
 from ai.schemas import AIRecommendation
 from ai.tools import CatalogTools, ToolError
 
-
 # --------------------------------------------------------------------------
 # Fakes / fixtures
 # --------------------------------------------------------------------------
@@ -227,7 +226,7 @@ def test_budget_hint_suppresses_missing_budget(config, catalog):
     svc = make_service(config, catalog,
                        provider=provider_returning(valid_payload()))
     rec = svc.recommend("show me headphones", locale="en",
-                        budget_hint=Decimal("250"))
+                        budget_hint=Decimal(250))
     assert not any("budget" in m.lower() for m in rec.missing_info)
 
 

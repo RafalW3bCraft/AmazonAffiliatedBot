@@ -5,6 +5,7 @@ catalog facts are revalidated server-side against the merchant catalog
 before anything reaches a shopper.
 """
 
+from ai.agent import AIShoppingService
 from ai.schemas import (
     AIRecommendation,
     CartProposalItem,
@@ -12,15 +13,14 @@ from ai.schemas import (
     ShopIntent,
 )
 from ai.tools import CatalogProtocol, CatalogTools, ToolError
-from ai.agent import AIShoppingService
 
 __all__ = [
     "AIRecommendation",
+    "AIShoppingService",
     "CartProposalItem",
-    "RecommendationItem",
-    "ShopIntent",
     "CatalogProtocol",
     "CatalogTools",
+    "RecommendationItem",
+    "ShopIntent",
     "ToolError",
-    "AIShoppingService",
 ]

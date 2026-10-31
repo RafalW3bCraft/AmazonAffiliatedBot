@@ -13,16 +13,17 @@ Usage:
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
+
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
 
-from config import Config
-from commerce.catalog import Catalog
 from ai.agent import AIShoppingService
+from commerce.catalog import Catalog
+from config import Config
 
 
 def main() -> int:
@@ -60,7 +61,7 @@ def main() -> int:
             failures.append(f"price mismatch {it.sku}: catalog {p.price} vs ai {it.price}")
 
     evidence = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
         "provider": result.provider,
         "model": getattr(config, 'AI_MODEL', '') or 'provider-default',
         "fallback": result.fallback,

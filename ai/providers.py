@@ -8,7 +8,7 @@ Selection order: explicit callable > OpenAI > Featherless > none
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 FEATHERLESS_DEFAULT_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct"
@@ -52,7 +52,7 @@ def build_client(client_kwargs: dict) -> Any:
     return openai.OpenAI(**client_kwargs)
 
 
-def complete(client: Any, model: str, messages: list[dict]) -> Optional[str]:
+def complete(client: Any, model: str, messages: list[dict]) -> str | None:
     """One JSON-mode chat completion. Returns the raw content string."""
     response = client.chat.completions.create(
         model=model,

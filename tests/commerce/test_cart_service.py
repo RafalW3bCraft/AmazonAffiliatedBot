@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -34,7 +34,7 @@ class FakeConfig:
 
 class MutableClock:
     def __init__(self, start=None):
-        self.now = start or datetime(2026, 10, 30, 12, 0, 0, tzinfo=timezone.utc)
+        self.now = start or datetime(2026, 10, 30, 12, 0, 0, tzinfo=UTC)
 
     def __call__(self):
         return self.now

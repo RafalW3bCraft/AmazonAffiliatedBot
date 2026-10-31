@@ -16,10 +16,9 @@ import json
 import logging
 import re
 import time
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable, Optional
-
-from pydantic import ValidationError
+from typing import Any
 
 from ai.schemas import AIRecommendation, CartProposalItem, RecommendationItem
 from ai.tools import CatalogProtocol, CatalogTools, ToolError
@@ -92,7 +91,7 @@ class AIShoppingService:
         self,
         config: Any,
         catalog: CatalogProtocol,
-        provider: Optional[Callable[[list[dict]], str]] = None,
+        provider: Callable[[list[dict]], str] | None = None,
         rate_limit_calls: int = 10,
         rate_limit_window_s: float = 60.0,
     ) -> None:
@@ -145,7 +144,7 @@ class AIShoppingService:
         self,
         query: str,
         locale: str = "en",
-        budget_hint: Optional[Decimal] = None,
+        budget_hint: Decimal | None = None,
         actor_id: str = "anon",
     ) -> AIRecommendation:
         if not self._bucket.allow(actor_id):
@@ -181,7 +180,7 @@ class AIShoppingService:
     # -- provider plumbing ------------------------------------------------
 
     def _build_messages(
-        self, query: str, locale: str, budget: Optional[Decimal]
+        self, query: str, locale: str, budget: Decimal | None
     ) -> list[dict]:
         try:
             rows = self.tools.catalog_search(
@@ -224,7 +223,7 @@ class AIShoppingService:
     # -- grounding ---------------------------------------------------------
 
     def _parse_and_ground(
-        self, raw: str, query: str, locale: str, budget: Optional[Decimal]
+        self, raw: str, query: str, locale: str, budget: Decimal | None
     ) -> AIRecommendation:
         data = json.loads(raw)  # raises on invalid JSON -> fallback
         data.pop("provider", None)  # server-owned fields
@@ -288,7 +287,7 @@ class AIShoppingService:
     # -- deterministic fallback ---------------------------------------------
 
     def _deterministic_fallback(
-        self, query: str, locale: str, budget_hint: Optional[Decimal]
+        self, query: str, locale: str, budget_hint: Decimal | None
     ) -> AIRecommendation:
         budget = budget_hint or self._parse_budget(query)
         hindi = locale.lower().startswith("hi")
@@ -343,7 +342,7 @@ class AIShoppingService:
         )
 
     @staticmethod
-    def _parse_budget(query: str) -> Optional[Decimal]:
+    def _parse_budget(query: str) -> Decimal | None:
         match = _BUDGET_RE.search(query or "")
         if not match:
             return None
