@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ labels.shop_title }}{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/dealpilot.css') }}" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<main class="dp-wrap" lang="{{ lang }}">
+  <h1 class="dp-title">{{ labels.shop_title }}</h1>
+
+  <section class="dp-lanes" aria-label="Shopping lanes">
+    <p><strong>{{ labels.lane1 }}</strong></p>
+    <p><strong>{{ labels.lane2 }}</strong></p>
+  </section>
+
+  <section class="dp-ai-panel" aria-label="Shopping assistant">
+    <h2>{{ labels.ask_ai }}</h2>
+    <form id="dp-ai-form">
+      <label for="dp-ai-query">{{ labels.search }}</label>
+      <input type="text" id="dp-ai-query" name="query" maxlength="500"
+             placeholder="e.g. desk organization under $20" autocomplete="off">
+      <button type="submit" class="dp-btn">{{ labels.ask_ai }}</button>
+    </form>
+    <div id="dp-ai-results" class="dp-ai-results" aria-live="polite"></div>
+  </section>
+
+  <section aria-label="Product catalog">
+    <form id="dp-quote-form" method="post" action="{{ url_for('commerce.cart_quote') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="dp-grid" id="dp-grid">
+        {% for p in products %}
+        <article class="dp-card">
+          <span class="dp-badge">{{ p.lane }}</span>
+          <h3 class="dp-card-title">{{ p.title }}</h3>
+          <p class="dp-card-desc">{{ p.description }}</p>
+          <p class="dp-card-price">{{ p.price }} {{ p.currency }}</p>
+          <p class="dp-card-stock">{{ labels.stock }}: {{ p.stock }}</p>
+          <div class="dp-card-actions">
+            <label>
+              <input type="checkbox" name="sel" value="{{ p.sku }}" data-sku="{{ p.sku }}">
+              {{ labels.add_to_cart }}
+            </label>
+            <label class="dp-qty-label">{{ labels.quantity }}
+              <input type="number" name="qty_{{ p.sku }}" min="1" max="10" value="1"
+                     aria-label="{{ labels.quantity }} {{ p.sku }}">
+            </label>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      <button type="submit" class="dp-btn dp-btn-primary">{{ labels.view_cart }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='checkout/checkout.js') }}" defer></script>
+{% endblock %}

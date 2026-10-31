@@ -1,0 +1,33 @@
+{
+  "timestamp_utc": "2026-10-30T08:45:22.893550+00:00",
+  "provider": "deterministic-fallback(provider-error:PermissionDeniedError)",
+  "model": "provider-default",
+  "fallback": true,
+  "query": "Find the best desk setup under $80. I prefer a compact LED lamp and a desk organizer. Explain the tradeoffs.",
+  "items": [
+    {
+      "sku": "DP-PLANT-008",
+      "price": "9.99",
+      "currency": "USD"
+    },
+    {
+      "sku": "DP-CABLE-004",
+      "price": "12.99",
+      "currency": "USD"
+    },
+    {
+      "sku": "DP-PAD-005",
+      "price": "15.75",
+      "currency": "USD"
+    },
+    {
+      "sku": "DP-TRAY-002",
+      "price": "18.50",
+      "currency": "USD"
+    }
+  ],
+  "confidence": "low",
+  "grounding_failures": [
+    "provider fell back to deterministic mode (not a real AI pass)"
+  ]
+}

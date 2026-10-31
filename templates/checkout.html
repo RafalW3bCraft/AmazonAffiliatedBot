@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Checkout{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/dealpilot.css') }}" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<main class="dp-wrap">
+  <h1 class="dp-title">Checkout</h1>
+  <p>Starting PayPal sandbox checkout…</p>
+  <button id="dp-checkout-btn" class="dp-btn dp-btn-primary"
+          data-quote-id="{{ quote_id }}">Continue to PayPal (Sandbox)</button>
+  <div id="dp-checkout-msg" class="dp-notice" aria-live="polite"></div>
+</main>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='checkout/checkout.js') }}" defer></script>
+{% endblock %}

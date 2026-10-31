@@ -13,8 +13,8 @@ A comprehensive Python-based Amazon affiliate marketing bot that automates deal 
 - **🔍 Keyword Search**: Search Amazon products by keyword with affiliate tags
 - **🖼️ Image Extraction**: Automatic product image extraction and display
 - **✅ Link Validation**: Comprehensive affiliate link validation and tag verification
-- **📊 Analytics**: Track clicks, conversions, and earnings
-- **🤖 AI Content Generation**: OpenAI-powered content generation for engaging posts
+- **📊 Analytics**: Track deal posts and link clicks (tracked clicks only — not verified affiliate revenue)
+- **🤖 AI Content Generation**: OpenAI- or Featherless-powered content generation (deterministic template fallback when no provider key is set)
 
 ### Advanced Features
 - **Deal Quality Scoring**: Filters deals by discount, rating, and review count
@@ -33,7 +33,7 @@ A comprehensive Python-based Amazon affiliate marketing bot that automates deal 
 - **API Keys**:
   - Telegram Bot Token (from [@BotFather](https://t.me/botfather))
   - Amazon Affiliate ID (from [Amazon Associates](https://affiliate-program.amazon.com/))
-  - OpenAI API Key (optional, for AI content generation)
+  - OpenAI API Key or Featherless API Key (optional, for AI content generation; otherwise a deterministic non-AI template fallback is used)
 
 ## 🧭 Production Readiness Notes
 
@@ -52,7 +52,7 @@ A comprehensive Python-based Amazon affiliate marketing bot that automates deal 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/AmazonAffiliatedBot.git
+git clone https://github.com/RafalW3bCraft/AmazonAffiliatedBot.git
 cd AmazonAffiliatedBot
 ```
 
@@ -434,17 +434,52 @@ For issues, questions, or contributions:
 
 ## 📈 Statistics
 
-Track your affiliate performance:
+The dashboard reports metrics derived from the local deals database only (`/api/stats`):
 - Total deals posted
-- Total clicks
-- Conversion rate
-- Total earnings
+- Total tracked link clicks (redirect clicks through this app — not verified affiliate conversions or revenue)
 - Active users
 - Category breakdown
+
+These numbers do **not** include actual Amazon Associates earnings; check your Amazon Associates dashboard for verified revenue.
 
 Access via:
 - Telegram: `/stats`
 - Web Dashboard: `/api/stats`
+
+---
+
+## 🧭 DealPilot AI Commerce (2026 hackathon upgrade)
+
+DealPilot turns the bot into a two-lane AI commerce demo:
+
+### Two commerce lanes
+
+1. **MERCHANT_CHECKOUT** (default, `ENABLE_MERCHANT_CHECKOUT=true`): in-app cart and checkout via **PayPal sandbox Orders v2** — never live PayPal (`PAYPAL_ENVIRONMENT=sandbox` is enforced).
+2. **EXTERNAL_AFFILIATE** (`ENABLE_EXTERNAL_AFFILIATE=false` by default): Amazon referral links with affiliate-tag validation. Disabled by default so the demo runs fully self-contained.
+
+### Features
+
+- PayPal sandbox order creation, capture, and webhook verification
+- Cart guardrails: `MAX_CART_TOTAL` cap and quote TTL (`CART_QUOTE_TTL_MINUTES`)
+- Separate commerce database (`COMMERCE_DATABASE_URL`, defaults to `sqlite:///commerce.db`) — payment records never touch the in-memory deals fallback
+- Shop UI at `/shop` with demo-mode catalog browsing (no secrets required)
+- AI shopping assistant via OpenAI or Featherless (`AI_MODEL`), with a deterministic, clearly non-AI fallback when no key is configured
+
+### Quickstart
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp example.env .env        # fill in values, or leave placeholders for demo
+DEMO_MODE=true python main.py web
+# open http://localhost:5000/shop
+```
+
+### Docs
+
+- [docs/JUDGE_RUNBOOK.md](docs/JUDGE_RUNBOOK.md) — step-by-step judge demo flow
+- [docs/EVIDENCE.md](docs/EVIDENCE.md) — verification evidence and test output
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — lane design and data flow
 
 ---
 

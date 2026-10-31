@@ -37,7 +37,66 @@ class Config:
         
         self.FLASK_HOST = os.getenv('FLASK_HOST', '0.0.0.0')
         self.FLASK_PORT = int(os.getenv('FLASK_PORT', '5000'))
-        self.FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
+
+        # Demo / offline mode: allows catalog browsing without secrets.
+        self.DEMO_MODE = os.getenv('DEMO_MODE', 'false').lower() in ('1', 'true', 'yes')
+
+        # Fail closed on missing Flask secret outside explicit demo mode.
+        self.FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY', '').strip()
+        if not self.FLASK_SECRET_KEY:
+            if self.DEMO_MODE:
+                self.FLASK_SECRET_KEY = 'demo-only-insecure-secret'
+                logger.warning("FLASK_SECRET_KEY not set - using demo-only secret (DEMO_MODE=true)")
+            else:
+                raise RuntimeError(
+                    "FLASK_SECRET_KEY is required. Set a strong random secret in the environment, "
+                    "or run with DEMO_MODE=true for offline catalog-only demos."
+                )
+        elif len(self.FLASK_SECRET_KEY) < 16 and not self.DEMO_MODE:
+            raise RuntimeError("FLASK_SECRET_KEY is too short (<16 chars); refusing to start.")
+
+        # Dashboard authentication for privileged routes (/users, /merchant, /api/users ...).
+        self.DASHBOARD_TOKEN = os.getenv('DASHBOARD_TOKEN', '').strip()
+        if not self.DASHBOARD_TOKEN and not self.DEMO_MODE:
+            logger.warning(
+                "DASHBOARD_TOKEN not set - privileged dashboard/API routes will be disabled"
+            )
+
+        # Feature gates
+        self.ENABLE_MERCHANT_CHECKOUT = os.getenv('ENABLE_MERCHANT_CHECKOUT', 'true').lower() in ('1', 'true', 'yes')
+        self.ENABLE_EXTERNAL_AFFILIATE = os.getenv('ENABLE_EXTERNAL_AFFILIATE', 'false').lower() in ('1', 'true', 'yes')
+        self.DISABLE_UNVERIFIED_AMAZON_SCRAPING = os.getenv('DISABLE_UNVERIFIED_AMAZON_SCRAPING', 'true').lower() in ('1', 'true', 'yes')
+
+        # PayPal sandbox settings (never live)
+        self.PAYPAL_ENVIRONMENT = os.getenv('PAYPAL_ENVIRONMENT', 'sandbox').strip().lower()
+        if self.PAYPAL_ENVIRONMENT != 'sandbox':
+            raise RuntimeError(
+                f"PAYPAL_ENVIRONMENT must be 'sandbox' for this application (got "
+                f"'{self.PAYPAL_ENVIRONMENT}'). Live PayPal is not supported."
+            )
+        self.PAYPAL_CLIENT_ID = os.getenv('PAYPAL_CLIENT_ID', '').strip()
+        self.PAYPAL_CLIENT_SECRET = os.getenv('PAYPAL_CLIENT_SECRET', '').strip()
+        self.PAYPAL_WEBHOOK_ID = os.getenv('PAYPAL_WEBHOOK_ID', '').strip()
+        self.PAYPAL_CURRENCY = os.getenv('PAYPAL_CURRENCY', 'USD').strip().upper()
+
+        # AI provider settings: OpenAI if key present, otherwise Featherless.
+        self.FEATHERLESS_API_KEY = os.getenv('FEATHERLESS_API_KEY', '').strip()
+        self.FEATHERLESS_BASE_URL = os.getenv('FEATHERLESS_BASE_URL', 'https://api.featherless.ai/v1').strip()
+        self.AI_MODEL = os.getenv('AI_MODEL', '').strip()
+        if self.OPENAI_API_KEY:
+            self.AI_PROVIDER = 'openai'
+        elif self.FEATHERLESS_API_KEY:
+            self.AI_PROVIDER = 'featherless'
+        else:
+            self.AI_PROVIDER = ''
+
+        # Commerce guardrails
+        self.MAX_CART_TOTAL = os.getenv('MAX_CART_TOTAL', '500.00').strip()
+        self.CART_QUOTE_TTL_MINUTES = int(os.getenv('CART_QUOTE_TTL_MINUTES', '30'))
+        self.COMMERCE_DATABASE_URL = os.getenv(
+            'COMMERCE_DATABASE_URL',
+            os.getenv('DATABASE_URL', f"sqlite:///{os.path.join(os.path.dirname(__file__), 'commerce.db')}")
+        )
         
         self.REGIONAL_AFFILIATE_IDS = {
             'US': self.AMAZON_AFFILIATE_ID,
@@ -87,6 +146,19 @@ class Config:
     def openai_configured(self) -> bool:
         
         return bool(self.OPENAI_API_KEY)
+
+    @property
+    def ai_configured(self) -> bool:
+        """True when any supported AI provider credential is present."""
+        return bool(self.OPENAI_API_KEY or self.FEATHERLESS_API_KEY)
+
+    @property
+    def paypal_configured(self) -> bool:
+        return bool(self.PAYPAL_CLIENT_ID and self.PAYPAL_CLIENT_SECRET)
+
+    @property
+    def dashboard_auth_enabled(self) -> bool:
+        return bool(self.DASHBOARD_TOKEN)
     
     @property
     def database_configured(self) -> bool:
@@ -99,20 +171,30 @@ class Config:
         return self.POST_INTERVAL_MINUTES / 60.0
     
     def validate(self) -> bool:
-        
+        """Validate configuration. Returns False when a hard requirement for the
+        enabled feature set is missing; logs warnings for optional degradations."""
+        ok = True
+
         if not self.bot_configured:
             logger.warning("⚠️ BOT_TOKEN not configured - bot functionality disabled")
-        
-        if not self.openai_configured:
-            logger.warning("⚠️ OPENAI_API_KEY not configured - using fallback content generation")
-        
+
+        if not self.ai_configured:
+            logger.warning("⚠️ No AI provider key (OPENAI_API_KEY or FEATHERLESS_API_KEY) - "
+                           "AI shopping will use the deterministic fallback, labeled as non-AI")
+
         if not self.database_configured:
-            logger.warning("⚠️ DATABASE_URL not configured - using in-memory database")
-        
-        if not self.AMAZON_AFFILIATE_ID:
-            logger.warning("⚠️ AMAZON_AFFILIATE_ID not configured - affiliate links will not work")
-        
-        return True
+            logger.warning("⚠️ DATABASE_URL not configured - deals lane uses in-memory database "
+                           "(never used for payment records)")
+
+        if self.ENABLE_EXTERNAL_AFFILIATE and not self.AMAZON_AFFILIATE_ID:
+            logger.error("❌ ENABLE_EXTERNAL_AFFILIATE=true but AMAZON_AFFILIATE_ID is missing")
+            ok = False
+
+        if self.ENABLE_MERCHANT_CHECKOUT and not self.paypal_configured:
+            logger.warning("⚠️ Merchant checkout enabled but PayPal sandbox credentials are missing - "
+                           "checkout endpoints will return 503 until configured")
+
+        return ok
     
     def get_affiliate_link(self, product_url: str, region: Optional[str] = None) -> str:
         

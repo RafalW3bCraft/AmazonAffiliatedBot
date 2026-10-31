@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Cart{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/dealpilot.css') }}" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<main class="dp-wrap">
+  <h1 class="dp-title">Cart review</h1>
+  {% if message %}<p class="dp-notice" role="status">{{ message }}</p>{% endif %}
+  {% if error %}<p class="dp-error" role="alert">{{ error }}</p>{% endif %}
+
+  {% if quote %}
+  <p class="dp-merchant">Merchant: <strong>{{ quote.merchant_name }}</strong></p>
+  <table class="dp-table">
+    <thead>
+      <tr><th>SKU</th><th>Item</th><th>{{ labels.quantity }}</th><th>{{ labels.price }}</th><th>Line total</th></tr>
+    </thead>
+    <tbody>
+      {% for it in quote['items'] %}
+      <tr>
+        <td>{{ it.sku }}</td>
+        <td>{{ it.title }}</td>
+        <td>{{ it.quantity }}</td>
+        <td>{{ it.unit_price }} {{ quote.currency }}</td>
+        <td>{{ it.line_total }} {{ quote.currency }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="4">{{ labels.total }}</td><td><strong>{{ quote.total }} {{ quote.currency }}</strong></td></tr>
+    </tfoot>
+  </table>
+
+  <p class="dp-expiry" id="dp-expiry" data-expires="{{ quote.expires_at_ts }}">
+    Quote expires: {{ quote.expires_at }} <span id="dp-countdown"></span>
+  </p>
+  <p class="dp-fulfillment">{{ fulfillment }}</p>
+
+  {% if quote.expired %}
+    <button class="dp-btn dp-btn-primary" disabled
+            title="This quote has expired - request a new one">{{ labels.checkout }}</button>
+    <p class="dp-error">Quote expired. Go back to the shop to create a fresh quote.</p>
+  {% else %}
+    <button id="dp-checkout-btn" class="dp-btn dp-btn-primary"
+            data-quote-id="{{ quote.quote_id }}">{{ labels.checkout }}</button>
+    <div id="dp-checkout-msg" class="dp-notice" aria-live="polite"></div>
+  {% endif %}
+  {% else %}
+    <p>Your cart is empty. <a href="{{ url_for('commerce.shop') }}">Browse the shop</a>.</p>
+  {% endif %}
+</main>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='checkout/checkout.js') }}" defer></script>
+{% endblock %}

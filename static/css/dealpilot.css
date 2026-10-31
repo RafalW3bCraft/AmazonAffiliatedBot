@@ -1,0 +1,164 @@
+/* DealPilot shop/cart/checkout/merchant styles — mobile-first, restrained. */
+
+.dp-wrap {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.dp-title {
+  font-size: 1.6rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.dp-lanes {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background: #f8fafc;
+}
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+@media (min-width: 40rem) {
+  .dp-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (min-width: 64rem) {
+  .dp-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+.dp-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.dp-card-title { font-size: 1.05rem; margin: 0; }
+.dp-card-desc { font-size: 0.9rem; color: #475569; margin: 0; }
+.dp-card-price { font-weight: 700; margin: 0; }
+.dp-card-stock { font-size: 0.85rem; color: #64748b; margin: 0; }
+
+.dp-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #0f766e;
+  color: #fff;
+  border-radius: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  align-self: flex-start;
+}
+
+.dp-card-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+
+.dp-qty-label input {
+  width: 3.5rem;
+  margin-left: 0.25rem;
+}
+
+.dp-btn {
+  display: inline-block;
+  border: 1px solid #0f766e;
+  border-radius: 0.375rem;
+  padding: 0.5rem 1rem;
+  background: #fff;
+  color: #0f766e;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.dp-btn-primary {
+  background: #0f766e;
+  color: #fff;
+}
+
+.dp-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0 1.25rem;
+  font-size: 0.95rem;
+}
+
+.dp-table th, .dp-table td {
+  border: 1px solid #e2e8f0;
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+}
+
+.dp-table thead { background: #f1f5f9; }
+
+.dp-notice {
+  background: #ecfeff;
+  border: 1px solid #67e8f9;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.dp-error {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.dp-demo-banner {
+  background: #fffbeb;
+  border: 1px solid #f59e0b;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+}
+
+.dp-fulfillment, .dp-sandbox {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.dp-ai-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dp-ai-panel input[type="text"] {
+  width: 100%;
+  max-width: 30rem;
+  padding: 0.45rem;
+  margin-right: 0.5rem;
+}
+
+.dp-ai-results { margin-top: 0.75rem; }
+.dp-ai-card { margin-bottom: 0.5rem; }
+
+.dp-dl {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  gap: 0.35rem 1rem;
+}
+
+.dp-dl dt { font-weight: 600; }
+.dp-dl dd { margin: 0; }

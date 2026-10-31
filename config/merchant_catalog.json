@@ -1,0 +1,108 @@
+{
+  "products": [
+    {
+      "sku": "DP-LAMP-001",
+      "title": "Compact LED Desk Lamp",
+      "description": "A small, dimmable LED desk lamp with three color temperatures, authored for the DealPilot hackathon demo.",
+      "price": "24.99",
+      "currency": "USD",
+      "stock": 40,
+      "category": "lighting",
+      "version": 1,
+      "rights_evidence": "original copy authored for hackathon demo, 2026-10",
+      "source": "MERCHANT",
+      "active": true
+    },
+    {
+      "sku": "DP-TRAY-002",
+      "title": "Desk Organizer Tray",
+      "description": "Two-tier organizer tray that keeps pens, notes, and small tools in reach, written for the DealPilot demo catalog.",
+      "price": "18.50",
+      "currency": "USD",
+      "stock": 60,
+      "category": "organization",
+      "version": 1,
+      "rights_evidence": "original copy authored for hackathon demo, 2026-10",
+      "source": "MERCHANT",
+      "active": true
+    },
+    {
+      "sku": "DP-STAND-003",
+      "title": "Adjustable Monitor Stand",
+      "description": "Raises a monitor to eye level with storage space underneath; demo product copy authored for the hackathon.",
+      "price": "32.00",
+      "currency": "USD",
+      "stock": 25,
+      "category": "ergonomics",
+      "version": 1,
+      "rights_evidence": "original copy authored for hackathon demo, 2026-10",
+      "source": "MERCHANT",
+      "active": true
+    },
+    {
+      "sku": "DP-CABLE-004",
+      "title": "Cable Management Kit",
+      "description": "Clips, sleeves, and ties to route and hide desk cables; original demo listing for DealPilot.",
+      "price": "12.99",
+      "currency": "USD",
+      "stock": 80,
+      "category": "organization",
+      "version": 1,
+      "rights_evidence": "original copy authored for hackathon demo, 2026-10",
+      "source": "MERCHANT",
+      "active": true
+    },
+    {
+      "sku": "DP-PAD-005",
+      "title": "Ergonomic Mouse Pad",
+      "description": "Large mouse pad with a soft wrist rest for long sessions; self-authored demo description.",
+      "price": "15.75",
+      "currency": "USD",
+      "stock": 50,
+      "category": "ergonomics",
+      "version": 1,
+      "rights_evidence": "original copy authored for hackathon demo, 2026-10",
+      "source": "MERCHANT",
+      "active": true
+    },
+    {
+      "sku": "DP-WBOARD-006",
+      "title": "Mini Desktop Whiteboard",
+      "description": "A4-size dry-erase board for quick notes and sketches beside the keyboard; demo catalog entry.",
+      "price": "21.40",
+      "currency": "USD",
+      "stock": 30,
+      "category": "productivity",
+      "version": 1,
+      "rights_evidence": "original copy authored for hackathon demo, 2026-10",
+      "source": "MERCHANT",
+      "active": true
+    },
+    {
+      "sku": "DP-HUB-007",
+      "title": "USB-C Hub 6-in-1",
+      "description": "Six-port USB-C hub for the demo desk setup; copy authored for the hackathon, no brand claims.",
+      "price": "39.99",
+      "currency": "USD",
+      "stock": 35,
+      "category": "connectivity",
+      "version": 1,
+      "rights_evidence": "original copy authored for hackathon demo, 2026-10",
+      "source": "MERCHANT",
+      "active": true
+    },
+    {
+      "sku": "DP-PLANT-008",
+      "title": "Faux Desk Plant",
+      "description": "A small maintenance-free faux plant to soften a desk corner; original demo listing text.",
+      "price": "9.99",
+      "currency": "USD",
+      "stock": 100,
+      "category": "decor",
+      "version": 1,
+      "rights_evidence": "original copy authored for hackathon demo, 2026-10",
+      "source": "MERCHANT",
+      "active": true
+    }
+  ]
+}
