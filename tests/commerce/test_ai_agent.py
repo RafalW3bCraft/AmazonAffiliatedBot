@@ -240,6 +240,35 @@ def test_fallback_missing_budget_flagged(catalog):
     assert any("budget" in m.lower() for m in rec.missing_info)
 
 
+def test_explicit_featherless_provider_wins_over_openai_key(monkeypatch, catalog):
+    config = make_config(provider="featherless")
+    config.FEATHERLESS_API_KEY = "featherless-test-key"
+    captured = {}
+
+    def build_client(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(AIShoppingService, "_build_openai_client", build_client)
+    service = make_service(config, catalog)
+
+    assert service.provider_name == "featherless"
+    assert captured["api_key"] == "featherless-test-key"
+    assert captured["base_url"] == config.FEATHERLESS_BASE_URL
+
+
+@pytest.mark.parametrize(
+    "provider, key_name",
+    [("openai", "OPENAI_API_KEY"), ("featherless", "FEATHERLESS_API_KEY")],
+)
+def test_explicit_provider_without_key_fails_clearly(catalog, provider, key_name):
+    config = make_config(provider=provider)
+    setattr(config, key_name, "")
+
+    with pytest.raises(RuntimeError, match=key_name):
+        make_service(config, catalog)
+
+
 # --------------------------------------------------------------------------
 # 6. Prompt injection in catalog description cannot change prices
 # --------------------------------------------------------------------------

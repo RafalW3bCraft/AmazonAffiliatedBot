@@ -402,6 +402,46 @@ def test_pending_capture_does_not_mark_paid(env):
     assert env.storage.get_quote(quote.quote_id).status != "PAID"
 
 
+def test_reconcile_pending_capture_does_not_mark_paid(env):
+    quote = make_quote(env)
+    started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    env.gateway.capture_status = "PENDING"
+    env.checkout.capture_after_approval("actor-1", started["attempt_id"], BUYER)
+
+    result = env.checkout.reconcile(started["attempt_id"])
+
+    assert result["status"] == CAPTURE_PENDING
+    assert env.storage.get_attempt(attempt_id=started["attempt_id"]).status == CAPTURE_PENDING
+    assert env.storage.get_quote(quote.quote_id).status != "PAID"
+
+
+def test_reconcile_denied_capture_marks_attempt_failed(env):
+    quote = make_quote(env)
+    started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    order = env.gateway.orders[started["paypal_order_id"]]
+    amount = order["purchase_units"][0]["amount"]
+    order["purchase_units"][0]["payments"] = {
+        "captures": [{"id": "CAP-DENIED", "status": "DENIED", "amount": amount}]
+    }
+
+    result = env.checkout.reconcile(started["attempt_id"])
+
+    assert result["status"] == FAILED
+    assert env.storage.get_attempt(attempt_id=started["attempt_id"]).status == FAILED
+    assert env.storage.get_quote(quote.quote_id).status != "PAID"
+
+
+def test_capture_response_with_denied_status_marks_attempt_failed(env):
+    quote = make_quote(env)
+    started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    env.gateway.capture_status = "DENIED"
+
+    result = env.checkout.capture_after_approval("actor-1", started["attempt_id"], BUYER)
+
+    assert result["status"] == FAILED
+    assert env.storage.get_attempt(attempt_id=started["attempt_id"]).status == FAILED
+
+
 def test_cancel_requires_matching_buyer_order_and_pre_capture_state(env):
     quote = make_quote(env)
     started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)

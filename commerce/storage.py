@@ -9,7 +9,7 @@ migrations/001_commerce.sql on init.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -119,9 +119,14 @@ class PaymentEvent(Base):
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     verification_result: Mapped[str] = mapped_column(String(24), nullable=False)
     processing_state: Mapped[str] = mapped_column(String(24), nullable=False)
+    paypal_order_id: Mapped[str | None] = mapped_column(String(64))
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error_category: Mapped[str | None] = mapped_column(String(64))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime)
     received_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class AgentSession(Base):
@@ -172,15 +177,29 @@ class CommerceStorage:
             self._apply_sqlite_migrations()
 
     def _apply_sqlite_migrations(self) -> None:
-        columns = {
-            column["name"]
-            for column in inspect(self.engine).get_columns("checkout_attempts")
+        additions = {
+            "checkout_attempts": {
+                "capture_request_id": "VARCHAR(64)",
+            },
+            "payment_events": {
+                "paypal_order_id": "VARCHAR(64)",
+                "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+                "last_error_category": "VARCHAR(64)",
+                "last_attempt_at": "DATETIME",
+                "completed_at": "DATETIME",
+            },
         }
-        if "capture_request_id" not in columns:
-            with self.engine.begin() as connection:
-                connection.exec_driver_sql(
-                    "ALTER TABLE checkout_attempts ADD COLUMN capture_request_id VARCHAR(64)"
-                )
+        with self.engine.begin() as connection:
+            for table, columns in additions.items():
+                existing = {
+                    column["name"]
+                    for column in inspect(self.engine).get_columns(table)
+                }
+                for name, sql_type in columns.items():
+                    if name not in existing:
+                        connection.exec_driver_sql(
+                            f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"
+                        )
 
     def _apply_migration(self) -> None:
         if not _MIGRATION_SQL.exists():
@@ -423,25 +442,115 @@ class CommerceStorage:
         event_type: str,
         verification_result: str,
         processing_state: str,
+        paypal_order_id: str | None = None,
     ) -> bool:
-        """Idempotent webhook insert. Returns False if already recorded."""
-        with self._session_factory.begin() as s:
-            existing = s.scalar(
+        """Durably insert a verified event; unique IDs make delivery idempotent."""
+        try:
+            with self._session_factory.begin() as s:
+                s.add(
+                    PaymentEvent(
+                        provider_event_id=provider_event_id,
+                        event_type=event_type,
+                        verification_result=verification_result,
+                        processing_state=processing_state,
+                        paypal_order_id=paypal_order_id,
+                    )
+                )
+                s.flush()
+        except IntegrityError:
+            return False
+        return True
+
+    def get_event(self, provider_event_id: str) -> PaymentEvent | None:
+        with self._session_factory() as s:
+            return s.scalar(
                 select(PaymentEvent).where(
                     PaymentEvent.provider_event_id == provider_event_id
                 )
             )
-            if existing is not None:
-                return False
-            s.add(
-                PaymentEvent(
-                    provider_event_id=provider_event_id,
-                    event_type=event_type,
-                    verification_result=verification_result,
-                    processing_state=processing_state,
+
+    def claim_event(self, provider_event_id: str) -> bool:
+        from sqlalchemy import and_, or_, update
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        stale_before = now - timedelta(minutes=2)
+        with self._session_factory.begin() as s:
+            result = s.execute(
+                update(PaymentEvent)
+                .where(
+                    PaymentEvent.provider_event_id == provider_event_id,
+                    PaymentEvent.verification_result == "SUCCESS",
+                    or_(
+                        PaymentEvent.processing_state.in_(
+                            ("RECEIVED", "RETRYABLE")
+                        ),
+                        and_(
+                            PaymentEvent.processing_state == "PROCESSING",
+                            PaymentEvent.last_attempt_at < stale_before,
+                        ),
+                    ),
+                )
+                .values(
+                    processing_state="PROCESSING",
+                    attempt_count=PaymentEvent.attempt_count + 1,
+                    last_attempt_at=now,
+                    last_error_category=None,
                 )
             )
+            return getattr(result, "rowcount", 0) == 1
+
+    def finish_event(
+        self,
+        provider_event_id: str,
+        processing_state: str,
+        error_category: str | None = None,
+    ) -> bool:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        with self._session_factory.begin() as s:
+            row = s.scalar(
+                select(PaymentEvent).where(
+                    PaymentEvent.provider_event_id == provider_event_id,
+                    PaymentEvent.processing_state == "PROCESSING",
+                )
+            )
+            if row is None:
+                return False
+            row.processing_state = processing_state
+            row.last_error_category = error_category
+            if processing_state == "COMPLETED":
+                row.completed_at = now
             return True
+
+    def list_retryable_events(self, limit: int = 100) -> list[dict]:
+        from sqlalchemy import and_, or_
+
+        stale_before = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=2)
+        with self._session_factory() as s:
+            rows = s.scalars(
+                select(PaymentEvent)
+                .where(
+                    PaymentEvent.verification_result == "SUCCESS",
+                    or_(
+                        PaymentEvent.processing_state.in_(
+                            ("RECEIVED", "RETRYABLE")
+                        ),
+                        and_(
+                            PaymentEvent.processing_state == "PROCESSING",
+                            PaymentEvent.last_attempt_at < stale_before,
+                        ),
+                    ),
+                )
+                .order_by(PaymentEvent.received_at)
+                .limit(limit)
+            ).all()
+            return [
+                {
+                    "provider_event_id": row.provider_event_id,
+                    "event_type": row.event_type,
+                    "paypal_order_id": row.paypal_order_id,
+                }
+                for row in rows
+            ]
 
     # -- reporting --------------------------------------------------------
 

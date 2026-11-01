@@ -28,13 +28,20 @@ def select_provider(config: Any) -> dict:
     featherless_key = getattr(config, "FEATHERLESS_API_KEY", "") or ""
     featherless_base = getattr(config, "FEATHERLESS_BASE_URL", "") or FEATHERLESS_BASE_URL
 
-    if provider == "openai" and openai_key:
+    if provider and provider not in {"openai", "featherless"}:
+        raise ValueError("AI_PROVIDER must be 'openai' or 'featherless'.")
+    if provider == "openai" and not openai_key:
+        raise RuntimeError("AI_PROVIDER=openai requires OPENAI_API_KEY.")
+    if provider == "featherless" and not featherless_key:
+        raise RuntimeError("AI_PROVIDER=featherless requires FEATHERLESS_API_KEY.")
+
+    if provider == "openai" or (not provider and openai_key):
         return {
             "name": "openai",
             "model": model or OPENAI_DEFAULT_MODEL,
             "client_kwargs": {"api_key": openai_key},
         }
-    if provider == "featherless" and featherless_key:
+    if provider == "featherless" or (not provider and featherless_key):
         return {
             "name": "featherless",
             "model": model or FEATHERLESS_DEFAULT_MODEL,

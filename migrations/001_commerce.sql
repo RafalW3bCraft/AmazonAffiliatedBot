@@ -60,8 +60,24 @@ CREATE TABLE IF NOT EXISTS payment_events (
     event_type VARCHAR(64) NOT NULL,
     verification_result VARCHAR(24) NOT NULL,
     processing_state VARCHAR(24) NOT NULL,
-    received_at TIMESTAMP DEFAULT now() NOT NULL
+    paypal_order_id VARCHAR(64),
+    attempt_count INT NOT NULL DEFAULT 0,
+    last_error_category VARCHAR(64),
+    last_attempt_at TIMESTAMP,
+    received_at TIMESTAMP DEFAULT now() NOT NULL,
+    completed_at TIMESTAMP
 );
+
+ALTER TABLE payment_events
+    ADD COLUMN IF NOT EXISTS paypal_order_id VARCHAR(64);
+ALTER TABLE payment_events
+    ADD COLUMN IF NOT EXISTS attempt_count INT NOT NULL DEFAULT 0;
+ALTER TABLE payment_events
+    ADD COLUMN IF NOT EXISTS last_error_category VARCHAR(64);
+ALTER TABLE payment_events
+    ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP;
+ALTER TABLE payment_events
+    ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS agent_sessions (
     id SERIAL PRIMARY KEY,

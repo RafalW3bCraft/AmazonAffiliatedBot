@@ -79,11 +79,20 @@ class Config:
         self.PAYPAL_WEBHOOK_ID = os.getenv('PAYPAL_WEBHOOK_ID', '').strip()
         self.PAYPAL_CURRENCY = os.getenv('PAYPAL_CURRENCY', 'USD').strip().upper()
 
-        # AI provider settings: OpenAI if key present, otherwise Featherless.
+        # An explicit provider wins; automatic selection is only used when unset.
         self.FEATHERLESS_API_KEY = os.getenv('FEATHERLESS_API_KEY', '').strip()
         self.FEATHERLESS_BASE_URL = os.getenv('FEATHERLESS_BASE_URL', 'https://api.featherless.ai/v1').strip()
         self.AI_MODEL = os.getenv('AI_MODEL', '').strip()
-        if self.OPENAI_API_KEY:
+        configured_provider = os.getenv('AI_PROVIDER', '').strip().lower()
+        if configured_provider and configured_provider not in {'openai', 'featherless'}:
+            raise RuntimeError("AI_PROVIDER must be 'openai' or 'featherless'.")
+        if configured_provider == 'openai' and not self.OPENAI_API_KEY:
+            raise RuntimeError('AI_PROVIDER=openai requires OPENAI_API_KEY.')
+        if configured_provider == 'featherless' and not self.FEATHERLESS_API_KEY:
+            raise RuntimeError('AI_PROVIDER=featherless requires FEATHERLESS_API_KEY.')
+        if configured_provider:
+            self.AI_PROVIDER = configured_provider
+        elif self.OPENAI_API_KEY:
             self.AI_PROVIDER = 'openai'
         elif self.FEATHERLESS_API_KEY:
             self.AI_PROVIDER = 'featherless'

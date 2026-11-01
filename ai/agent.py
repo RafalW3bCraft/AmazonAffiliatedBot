@@ -22,6 +22,7 @@ from typing import Any
 
 from ai.schemas import AIRecommendation, CartProposalItem, RecommendationItem
 from ai.tools import CatalogProtocol, CatalogTools, ToolError
+from ai.providers import select_provider
 
 logger = logging.getLogger(__name__)
 
@@ -110,24 +111,11 @@ class AIShoppingService:
             self.model = _getattr(config, "AI_MODEL", "") or "injected-test-model"
             return
 
-        provider_kind = (_getattr(config, "AI_PROVIDER", "") or "").strip().lower()
-        model = (_getattr(config, "AI_MODEL", "") or "").strip()
-        openai_key = _getattr(config, "OPENAI_API_KEY", "") or ""
-        featherless_key = _getattr(config, "FEATHERLESS_API_KEY", "") or ""
-        featherless_base = (
-            _getattr(config, "FEATHERLESS_BASE_URL", "") or _FEATHERLESS_BASE_URL
-        )
-
-        if provider_kind == "openai" and openai_key:
-            self._client = self._build_openai_client(api_key=openai_key)
-            self.provider_name = "openai"
-            self.model = model or _OPENAI_DEFAULT_MODEL
-        elif provider_kind == "featherless" and featherless_key:
-            self._client = self._build_openai_client(
-                api_key=featherless_key, base_url=featherless_base
-            )
-            self.provider_name = "featherless"
-            self.model = model or _FEATHERLESS_DEFAULT_MODEL
+        selection = select_provider(config)
+        if selection["name"]:
+            self._client = self._build_openai_client(**selection["client_kwargs"])
+            self.provider_name = selection["name"]
+            self.model = selection["model"]
         # else: no provider -> deterministic fallback only
 
     @staticmethod

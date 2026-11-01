@@ -315,6 +315,12 @@ class CheckoutService:
             (c for c in captures if c.get("status") == "COMPLETED"), None
         )
         if completed is None:
+            denied = next((c for c in captures if c.get("status") == "DENIED"), None)
+            if denied is not None:
+                self.storage.set_attempt_status(
+                    attempt_id, FAILED, (CAPTURE_PENDING,)
+                )
+                return {"attempt_id": attempt_id, "status": FAILED}
             pending = next((c for c in captures if c.get("status") == "PENDING"), None)
             if pending is not None:
                 # No fake success: stay CAPTURE_PENDING until webhook/reconcile.
@@ -437,7 +443,21 @@ class CheckoutService:
                 self.storage.update_quote_status(quote.quote_id, "PAID")
                 return {"attempt_id": attempt_id, "status": PAID, "capture_id": capture_id}
 
+        if any(capture.get("status") == "DENIED" for capture in captures):
+            self.storage.set_attempt_status(
+                attempt_id,
+                FAILED,
+                (ORDER_CREATED, AWAITING_BUYER_APPROVAL, APPROVED,
+                 CAPTURE_PENDING, REQUIRES_REVIEW),
+            )
+            return {"attempt_id": attempt_id, "status": FAILED}
+
         if any(capture.get("status") == "PENDING" for capture in captures):
+            self.storage.set_attempt_status(
+                attempt_id,
+                CAPTURE_PENDING,
+                (ORDER_CREATED, AWAITING_BUYER_APPROVAL, APPROVED, REQUIRES_REVIEW),
+            )
             return {"attempt_id": attempt_id, "status": CAPTURE_PENDING}
 
         if remote_status == "APPROVED":

@@ -47,6 +47,7 @@ ALLOWED_WEBHOOK_EVENTS = {
     'PAYMENT.CAPTURE.PENDING',
     'PAYMENT.CAPTURE.DENIED',
     'CHECKOUT.ORDER.APPROVED',
+    'CHECKOUT.PAYMENT-APPROVAL.REVERSED',
 }
 
 PAYPAL_API_BASE = {
@@ -140,6 +141,65 @@ def _fetch_attempt(storage, key):
         except Exception:
             attempt = None
     return _row_to_attempt_dict(attempt)
+
+
+def _webhook_order_id(event):
+    resource = event.get('resource') or {}
+    related = (
+        (resource.get('supplementary_data') or {}).get('related_ids') or {}
+    )
+    order_id = related.get('order_id')
+    if order_id:
+        return str(order_id)[:64]
+    if event.get('event_type') in {
+        'CHECKOUT.ORDER.APPROVED',
+        'CHECKOUT.PAYMENT-APPROVAL.REVERSED',
+    }:
+        return str(resource.get('id') or '')[:64] or None
+    return None
+
+
+def _process_webhook_event(storage, checkout, event_id):
+    if checkout is None or not storage.claim_event(event_id):
+        return False
+    event = storage.get_event(event_id)
+    try:
+        if event is None or not event.paypal_order_id:
+            raise ValueError('MissingPayPalOrderReference')
+        attempt = _fetch_attempt(storage, event.paypal_order_id)
+        if attempt is None:
+            raise LookupError('CheckoutAttemptNotFound')
+
+        result = checkout.reconcile(attempt['attempt_id'])
+        if event.event_type == 'CHECKOUT.PAYMENT-APPROVAL.REVERSED':
+            status = (result or {}).get('status')
+            if status not in {'PAID', 'CAPTURE_PENDING', 'REQUIRES_REVIEW'}:
+                storage.set_attempt_status(
+                    attempt['attempt_id'],
+                    'FAILED',
+                    ('ORDER_CREATED', 'AWAITING_BUYER_APPROVAL', 'APPROVED'),
+                )
+        storage.finish_event(event_id, 'COMPLETED')
+        return True
+    except Exception as exc:
+        storage.finish_event(event_id, 'RETRYABLE', type(exc).__name__)
+        logger.error(
+            'webhook reconciliation deferred event=%s category=%s',
+            event_id,
+            type(exc).__name__,
+        )
+        return False
+
+
+def process_pending_webhook_events(storage, checkout, limit=100):
+    """Retry durable verified events; intended for a scheduled worker/CLI."""
+    completed = 0
+    for event in storage.list_retryable_events(limit=limit):
+        if _process_webhook_event(
+            storage, checkout, event['provider_event_id']
+        ):
+            completed += 1
+    return completed
 
 
 def _row_to_attempt_dict(attempt):
@@ -938,6 +998,8 @@ def create_commerce_blueprint(config):
             return jsonify({'error': 'invalid JSON body'}), 400
         event_id = str(event.get('id', ''))[:128]
         event_type = str(event.get('event_type', ''))[:64]
+        if not event_id or not event_type:
+            return jsonify({'error': 'event id and type are required'}), 400
         # SSRF guard runs before any outbound call.
         try:
             ok = _verify_webhook_signature(config, request.headers, raw_body)
@@ -956,28 +1018,34 @@ def create_commerce_blueprint(config):
         storage = svc.get('storage')
         if storage is None:
             return jsonify({'error': 'storage unavailable'}), 503
-        is_new = storage.record_event(
-            event_id, event_type=event_type,
-            verification_result='SUCCESS', processing_state='RECEIVED',
-        )
-        if not is_new:
+        try:
+            is_new = storage.record_event(
+                event_id,
+                event_type=event_type,
+                verification_result='SUCCESS',
+                processing_state='RECEIVED',
+                paypal_order_id=_webhook_order_id(event),
+            )
+        except Exception as exc:
+            logger.error(
+                'webhook event persistence failed category=%s',
+                type(exc).__name__,
+            )
+            return jsonify({'error': 'webhook persistence unavailable'}), 503
+
+        event_row = storage.get_event(event_id)
+        if not is_new and event_row and event_row.processing_state == 'COMPLETED':
             return jsonify({'duplicate': True}), 200
-        if event_type == 'PAYMENT.CAPTURE.COMPLETED':
-            checkout = svc.get('checkout_service')
-            if checkout is not None:
-                try:
-                    resource = event.get('resource', {}) or {}
-                    # capture resource links back to the order via supplementary_data
-                    order_id = (
-                        (resource.get('supplementary_data', {}) or {})
-                        .get('related_ids', {}) or {}
-                    ).get('order_id') or resource.get('id', '')
-                    attempt = _fetch_attempt(storage, order_id) if order_id else None
-                    if attempt is not None:
-                        checkout.reconcile(attempt['attempt_id'])
-                except Exception as e:
-                    # Handled: never 5xx a verified webhook over reconcile.
-                    logger.error(f'webhook reconcile failed event={event_id}: {e}')
-        return jsonify({'received': True}), 200
+        checkout = svc.get('checkout_service')
+        processed = _process_webhook_event(storage, checkout, event_id)
+        event_row = storage.get_event(event_id)
+        if processed:
+            return jsonify({'received': True, 'processing_state': 'COMPLETED'}), 200
+        if event_row and event_row.processing_state == 'PROCESSING':
+            return jsonify({'duplicate': True, 'processing_state': 'PROCESSING'}), 202
+        return jsonify({
+            'received': True,
+            'processing_state': event_row.processing_state if event_row else 'RETRYABLE',
+        }), 503
 
     return bp

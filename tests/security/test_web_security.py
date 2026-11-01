@@ -166,20 +166,39 @@ def test_webhook_duplicate_event_id_processed_once(monkeypatch, tmp_path):
                     PAYPAL_CLIENT_ID='cid', PAYPAL_CLIENT_SECRET='sec',
                     PAYPAL_WEBHOOK_ID='wh-1')
     _stub_verification(monkeypatch, app)
+    storage = app.extensions['dealpilot']['storage']
+    attempt = storage.create_checkout_attempt(
+        cart_quote_id=1, buyer_id='buyer-A', request_id='req-webhook-dup',
+        status='AWAITING_BUYER_APPROVAL',
+    )
+    storage.attach_paypal_order(attempt.id, 'ORDER-WEBHOOK-DUP')
+    reconcile_calls = []
+
+    class Checkout:
+        def reconcile(self, attempt_id):
+            reconcile_calls.append(attempt_id)
+            return {'attempt_id': attempt_id, 'status': 'CAPTURE_PENDING'}
+
+    checkout = Checkout()
+    app.extensions['dealpilot']['checkout_service'] = checkout
     client = app.test_client()
     event = {
         'id': 'evt-dup',
         'event_type': 'PAYMENT.CAPTURE.PENDING',
-        'resource': {'id': 'cap-1'},
+        'resource': {
+            'id': 'cap-1',
+            'supplementary_data': {
+                'related_ids': {'order_id': 'ORDER-WEBHOOK-DUP'},
+            },
+        },
     }
     first = _post_webhook(client, event, WEBHOOK_HEADERS)
     assert first.status_code == 200
 
-    # Count events in storage; second identical POST must not add another.
-    storage = app.extensions['dealpilot']['storage']
     second = _post_webhook(client, event, WEBHOOK_HEADERS)
     assert second.status_code == 200
     assert second.get_json() == {'duplicate': True}
+    assert reconcile_calls == [attempt.id]
 
     # Verify dedup through storage semantics: recording the same id again
     # must report a duplicate (False).
@@ -192,6 +211,58 @@ def test_webhook_duplicate_event_id_processed_once(monkeypatch, tmp_path):
         from commerce.storage import PaymentEvent
         count = s.query(PaymentEvent).filter_by(provider_event_id='evt-dup').count()
     assert count == 1
+
+
+def test_failed_verified_webhook_retries_on_redelivery(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path,
+                    PAYPAL_CLIENT_ID='cid', PAYPAL_CLIENT_SECRET='sec',
+                    PAYPAL_WEBHOOK_ID='wh-1')
+    _stub_verification(monkeypatch, app)
+    storage = app.extensions['dealpilot']['storage']
+    attempt = storage.create_checkout_attempt(
+        cart_quote_id=1, buyer_id='buyer-A', request_id='req-webhook-retry',
+        status='AWAITING_BUYER_APPROVAL',
+    )
+    storage.attach_paypal_order(attempt.id, 'ORDER-WEBHOOK-RETRY')
+    calls = []
+
+    class Checkout:
+        def reconcile(self, attempt_id):
+            calls.append(attempt_id)
+            if len(calls) == 1:
+                raise TimeoutError('sandbox read timed out')
+            return {'attempt_id': attempt_id, 'status': 'AWAITING_BUYER_APPROVAL'}
+
+    checkout = Checkout()
+    app.extensions['dealpilot']['checkout_service'] = checkout
+    event = {
+        'id': 'evt-retry',
+        'event_type': 'CHECKOUT.ORDER.APPROVED',
+        'resource': {'id': 'ORDER-WEBHOOK-RETRY'},
+    }
+    client = app.test_client()
+
+    first = _post_webhook(client, event, WEBHOOK_HEADERS)
+    assert first.status_code == 503
+    stored = storage.get_event('evt-retry')
+    assert stored.processing_state == 'RETRYABLE'
+    assert stored.attempt_count == 1
+    assert stored.last_error_category == 'TimeoutError'
+    assert stored.last_attempt_at is not None
+    assert stored.completed_at is None
+
+    import web.commerce_routes as cr
+    assert cr.process_pending_webhook_events(storage, checkout) == 1
+    stored = storage.get_event('evt-retry')
+    assert stored.processing_state == 'COMPLETED'
+    assert stored.attempt_count == 2
+    assert stored.completed_at is not None
+    assert calls == [attempt.id, attempt.id]
+
+    duplicate = _post_webhook(client, event, WEBHOOK_HEADERS)
+    assert duplicate.status_code == 200
+    assert duplicate.get_json() == {'duplicate': True}
+    assert calls == [attempt.id, attempt.id]
 
 
 def test_webhook_bad_signature_status_400(monkeypatch, tmp_path):
