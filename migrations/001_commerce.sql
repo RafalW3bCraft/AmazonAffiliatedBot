@@ -35,10 +35,14 @@ CREATE TABLE IF NOT EXISTS checkout_attempts (
     buyer_id VARCHAR(64) NOT NULL,
     request_id VARCHAR(64) UNIQUE NOT NULL,
     paypal_order_id VARCHAR(64) UNIQUE,
+    capture_request_id VARCHAR(64),
     status VARCHAR(24) NOT NULL,
     created_at TIMESTAMP DEFAULT now() NOT NULL,
     updated_at TIMESTAMP DEFAULT now() NOT NULL
 );
+
+ALTER TABLE checkout_attempts
+    ADD COLUMN IF NOT EXISTS capture_request_id VARCHAR(64);
 
 CREATE TABLE IF NOT EXISTS payment_captures (
     id SERIAL PRIMARY KEY,

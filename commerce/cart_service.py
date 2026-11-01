@@ -106,8 +106,12 @@ class CartService:
             raise QuoteNotFound(quote_id)
         return self.storage.quote_to_data(row)
 
-    def validate_quote(self, quote_id: str) -> CartQuoteData:
+    def validate_quote(
+        self, quote_id: str, actor_id: str | None = None
+    ) -> CartQuoteData:
         quote = self._load_quote(quote_id)
+        if actor_id is not None and quote.actor_id != actor_id:
+            raise QuoteNotFound(quote_id)
         if quote.status != "OPEN":
             raise QuoteNotOpen(f"quote {quote_id} status is {quote.status}")
         if quote.expires_at <= self.clock():
@@ -115,9 +119,13 @@ class CartService:
             raise QuoteExpired(quote_id)
         return quote
 
-    def refresh_check(self, quote_id: str) -> CartQuoteData:
+    def refresh_check(
+        self, quote_id: str, actor_id: str | None = None
+    ) -> CartQuoteData:
         """Re-read the catalog; fail if the snapshot drifted (stale)."""
         quote = self._load_quote(quote_id)
+        if actor_id is not None and quote.actor_id != actor_id:
+            raise QuoteNotFound(quote_id)
         for line in quote.items:
             product = self.catalog.get_product(line.sku)
             if product is None:

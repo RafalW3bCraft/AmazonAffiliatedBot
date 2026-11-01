@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -12,6 +14,7 @@ from commerce.catalog import Catalog
 from commerce.checkout_service import (
     AWAITING_BUYER_APPROVAL,
     CAPTURE_PENDING,
+    CANCELED,
     FAILED,
     PAID,
     REQUIRES_REVIEW,
@@ -25,9 +28,16 @@ from commerce.exceptions import (
     ForbiddenBuyer,
     NotApproved,
     QuoteExpired,
+    QuoteNotFound,
 )
 from commerce.schemas import CartItem
-from commerce.storage import CommerceStorage
+from commerce.storage import CheckoutAttempt, CommerceStorage
+from paypal_checkout.errors import (
+    PayPalAmbiguousError,
+    PayPalApiError,
+    PayPalAuthError,
+    PayPalTimeoutError,
+)
 
 CATALOG_PATH = Path(__file__).resolve().parents[2] / "config" / "merchant_catalog.json"
 BUYER = "buyer-123"
@@ -176,6 +186,8 @@ def test_happy_path_create_approve_capture_paid(env):
     assert capture.currency == "USD"
     assert capture.status == "COMPLETED"
     assert capture.verified_at is not None
+    attempt = env.storage.get_attempt(attempt_id=started["attempt_id"])
+    assert attempt.capture_request_id == env.gateway.capture_calls[0]["request_id"]
     # quote marked PAID
     assert env.storage.get_quote(quote.quote_id).status == "PAID"
 
@@ -186,6 +198,14 @@ def test_repeated_start_checkout_idempotent(env):
     second = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
     assert first["attempt_id"] == second["attempt_id"]
     assert len(env.gateway.create_calls) == 1  # create_order called once
+
+
+def test_start_checkout_rejects_quote_from_another_actor(env):
+    quote = make_quote(env)
+    with pytest.raises(QuoteNotFound):
+        env.checkout.start_checkout("actor-2", quote.quote_id, BUYER)
+    assert env.gateway.create_calls == []
+    assert env.storage.list_orders() == []
 
 
 def test_capture_before_approved(env):
@@ -225,6 +245,32 @@ def test_double_capture_single_flight(env):
     assert captures[0]["status"] == PAID
 
 
+def test_concurrent_capture_single_flight(env):
+    quote = make_quote(env)
+    started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    barrier = Barrier(2)
+    original_get_order = env.gateway.get_order
+
+    def synchronized_get_order(order_id):
+        order = original_get_order(order_id)
+        barrier.wait(timeout=5)
+        return order
+
+    env.gateway.get_order = synchronized_get_order
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(
+            lambda _: env.checkout.capture_after_approval(
+                "actor-1", started["attempt_id"], BUYER
+            ),
+            range(2),
+        ))
+
+    assert all(result["status"] in {PAID, CAPTURE_PENDING} for result in results)
+    assert len(env.gateway.capture_calls) == 1
+    attempt = env.storage.get_attempt(attempt_id=started["attempt_id"])
+    assert attempt.status == PAID
+
+
 def test_expired_quote_rejected(env):
     quote = make_quote(env)
     env.clock.advance(minutes=31)
@@ -239,6 +285,28 @@ def test_gateway_5xx_on_create_marks_failed(env):
         env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
     attempts = env.storage.list_orders()
     assert attempts[0]["status"] == FAILED
+
+
+@pytest.mark.parametrize(
+    "gateway_error",
+    [PayPalTimeoutError("timeout"), PayPalAmbiguousError("connection lost")],
+)
+def test_actual_paypal_ambiguous_errors_keep_create_attempt_recoverable(
+    env, gateway_error
+):
+    env.gateway.create_error = gateway_error
+    quote = make_quote(env)
+    with pytest.raises(AmbiguousCheckoutError):
+        env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    assert env.storage.list_orders()[0]["status"] == REQUIRES_REVIEW
+
+
+def test_actual_paypal_api_rejection_on_create_is_definitive(env):
+    env.gateway.create_error = PayPalApiError("rejected", status_code=422)
+    quote = make_quote(env)
+    with pytest.raises(CheckoutError):
+        env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    assert env.storage.list_orders()[0]["status"] == FAILED
 
 
 def test_ambiguous_timeout_on_capture_then_reconcile_recovers(env):
@@ -256,6 +324,60 @@ def test_ambiguous_timeout_on_capture_then_reconcile_recovers(env):
     assert healed["status"] == PAID
     assert env.storage.get_capture(capture_id=healed["capture_id"]) is not None
     assert env.storage.get_quote(quote.quote_id).status == "PAID"
+
+
+def test_stale_capture_owner_reconciles_then_reuses_persisted_key(env):
+    quote = make_quote(env)
+    started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    attempt_id = started["attempt_id"]
+    stable_key = f"capture-{attempt_id}"
+    assert env.storage.set_attempt_status(
+        attempt_id,
+        CAPTURE_PENDING,
+        (AWAITING_BUYER_APPROVAL,),
+        capture_request_id=stable_key,
+    )
+    with env.storage.session() as session:
+        attempt = session.get(CheckoutAttempt, attempt_id)
+        attempt.updated_at = (env.clock() - timedelta(minutes=3)).replace(tzinfo=None)
+        session.commit()
+
+    recovered = env.checkout.reconcile(attempt_id)
+    assert recovered["status"] == AWAITING_BUYER_APPROVAL
+    result = env.checkout.capture_after_approval("actor-1", attempt_id, BUYER)
+
+    assert result["status"] == PAID
+    assert env.gateway.capture_calls[0]["request_id"] == stable_key
+    assert env.storage.get_attempt(attempt_id=attempt_id).capture_request_id == stable_key
+
+
+@pytest.mark.parametrize(
+    "gateway_error",
+    [PayPalTimeoutError("timeout"), PayPalAmbiguousError("connection lost")],
+)
+def test_actual_paypal_ambiguous_errors_on_capture_require_reconciliation(
+    env, gateway_error
+):
+    quote = make_quote(env)
+    started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    env.gateway.capture_error = gateway_error
+    with pytest.raises(AmbiguousCheckoutError):
+        env.checkout.capture_after_approval("actor-1", started["attempt_id"], BUYER)
+    attempt = env.storage.get_attempt(attempt_id=started["attempt_id"])
+    assert attempt.status == REQUIRES_REVIEW
+    assert env.gateway.capture_calls[0]["request_id"] == f"capture-{attempt.id}"
+
+
+def test_paypal_auth_failure_on_capture_is_not_a_payment_rejection(env):
+    quote = make_quote(env)
+    started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    env.gateway.capture_error = PayPalAuthError("invalid credentials", status_code=401)
+    with pytest.raises(CheckoutError, match="authentication failed"):
+        env.checkout.capture_after_approval("actor-1", started["attempt_id"], BUYER)
+    assert (
+        env.storage.get_attempt(attempt_id=started["attempt_id"]).status
+        == REQUIRES_REVIEW
+    )
 
 
 def test_currency_mismatch_rejected(env):
@@ -278,6 +400,31 @@ def test_pending_capture_does_not_mark_paid(env):
     assert attempt.status == CAPTURE_PENDING
     assert env.storage.get_capture(attempt_id=started["attempt_id"]) is None
     assert env.storage.get_quote(quote.quote_id).status != "PAID"
+
+
+def test_cancel_requires_matching_buyer_order_and_pre_capture_state(env):
+    quote = make_quote(env)
+    started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    attempt_id = started["attempt_id"]
+    order_id = started["paypal_order_id"]
+
+    assert not env.checkout.cancel_before_capture("buyer-999", attempt_id, order_id)
+    assert not env.checkout.cancel_before_capture(BUYER, attempt_id, "forged-order")
+    assert env.checkout.cancel_before_capture(BUYER, attempt_id, order_id)
+    assert not env.checkout.cancel_before_capture(BUYER, attempt_id, order_id)
+    assert env.storage.get_attempt(attempt_id=attempt_id).status == CANCELED
+
+
+@pytest.mark.parametrize("status", [PAID, CAPTURE_PENDING])
+def test_cancel_cannot_override_capture_state(env, status):
+    quote = make_quote(env)
+    started = env.checkout.start_checkout("actor-1", quote.quote_id, BUYER)
+    env.storage.set_attempt_status(started["attempt_id"], status)
+
+    assert not env.checkout.cancel_before_capture(
+        BUYER, started["attempt_id"], started["paypal_order_id"]
+    )
+    assert env.storage.get_attempt(attempt_id=started["attempt_id"]).status == status
 
 
 def test_get_order_status_buyer_and_merchant(env):

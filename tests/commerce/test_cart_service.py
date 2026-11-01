@@ -157,6 +157,16 @@ def test_validate_unknown_quote(service):
         service.validate_quote("no-such-quote")
 
 
+def test_validate_quote_rejects_another_actor(service):
+    quote = service.create_quote(
+        "owner", [CartItem(sku="DP-LAMP-001", quantity=1)]
+    )
+    with pytest.raises(QuoteNotFound):
+        service.validate_quote(quote.quote_id, actor_id="stranger")
+    with pytest.raises(QuoteNotFound):
+        service.refresh_check(quote.quote_id, actor_id="stranger")
+
+
 def test_version_bump_stale(tmp_path, storage, clock):
     svc = CartService(Catalog(CATALOG_PATH), storage, FakeConfig(), clock=clock)
     quote = svc.create_quote("a", [CartItem(sku="DP-LAMP-001", quantity=1)])

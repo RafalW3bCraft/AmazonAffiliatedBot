@@ -97,6 +97,24 @@ def test_cart_quote_server_prices_only(monkeypatch, tmp_path):
     assert 'DealPilot Demo Merchant' in body
 
 
+def test_cart_quote_is_hidden_from_another_session(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    owner = app.test_client()
+    token = _csrf(owner)
+    quote_id = owner.post(
+        '/cart/quote',
+        json={'items': [{'sku': 'DP-LAMP-001', 'quantity': 1}]},
+        headers={'X-CSRF-Token': token},
+    ).get_json()['quote_id']
+
+    stranger = app.test_client()
+    response = stranger.get(f'/cart?quote_id={quote_id}')
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'Quote not found.' in body
+    assert '24.99' not in body
+
+
 def test_csrf_required_for_writes(monkeypatch, tmp_path):
     app = _make_app(monkeypatch, tmp_path)
     client = app.test_client()
@@ -144,6 +162,33 @@ def test_paypal_return_unknown_token_no_state_change(monkeypatch, tmp_path):
     assert resp.status_code in (302, 404)
     storage = app.extensions['dealpilot']['storage']
     assert storage.list_orders(limit=10) == []
+
+
+def test_paypal_cancel_requires_the_attempt_owner_session(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    storage = app.extensions['dealpilot']['storage']
+    row = storage.create_checkout_attempt(
+        cart_quote_id=1, buyer_id='buyer-A', request_id='req-cancel',
+        status='AWAITING_BUYER_APPROVAL',
+    )
+    storage.attach_paypal_order(row.id, 'ORDER-CANCEL')
+    calls = []
+
+    class Checkout:
+        def cancel_before_capture(self, buyer_id, attempt_id, paypal_order_id):
+            calls.append((buyer_id, attempt_id, paypal_order_id))
+            return True
+
+    app.extensions['dealpilot']['checkout_service'] = Checkout()
+    owner = app.test_client()
+    with owner.session_transaction() as session:
+        session['actor_id'] = 'buyer-A'
+    assert owner.get('/paypal/cancel?token=ORDER-CANCEL').status_code == 302
+    assert calls == [('buyer-A', row.id, 'ORDER-CANCEL')]
+
+    stranger = app.test_client()
+    assert stranger.get('/paypal/cancel?token=ORDER-CANCEL').status_code == 302
+    assert calls == [('buyer-A', row.id, 'ORDER-CANCEL')]
 
 
 def test_order_ownership_between_sessions(monkeypatch, tmp_path):

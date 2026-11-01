@@ -25,6 +25,7 @@ from sqlalchemy import (
     Text,
     create_engine,
     func,
+    inspect,
     select,
 )
 from sqlalchemy.exc import IntegrityError
@@ -86,6 +87,7 @@ class CheckoutAttempt(Base):
     buyer_id: Mapped[str] = mapped_column(String(64), nullable=False)
     request_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     paypal_order_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+    capture_request_id: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(24), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
@@ -167,6 +169,18 @@ class CommerceStorage:
             self._apply_migration()
         else:
             Base.metadata.create_all(self.engine)
+            self._apply_sqlite_migrations()
+
+    def _apply_sqlite_migrations(self) -> None:
+        columns = {
+            column["name"]
+            for column in inspect(self.engine).get_columns("checkout_attempts")
+        }
+        if "capture_request_id" not in columns:
+            with self.engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "ALTER TABLE checkout_attempts ADD COLUMN capture_request_id VARCHAR(64)"
+                )
 
     def _apply_migration(self) -> None:
         if not _MIGRATION_SQL.exists():
@@ -312,6 +326,7 @@ class CommerceStorage:
         attempt_id: int,
         new_status: str,
         allowed_from: tuple[str, ...] | None = None,
+        capture_request_id: str | None = None,
     ) -> bool:
         """Transition attempt status.
 
@@ -327,19 +342,24 @@ class CommerceStorage:
                     return False
                 row.status = new_status
                 row.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                if capture_request_id is not None:
+                    row.capture_request_id = capture_request_id
                 return True
             from sqlalchemy import update
 
+            values = {
+                "status": new_status,
+                "updated_at": datetime.now(UTC).replace(tzinfo=None),
+            }
+            if capture_request_id is not None:
+                values["capture_request_id"] = capture_request_id
             result = s.execute(
                 update(CheckoutAttempt)
                 .where(
                     CheckoutAttempt.id == attempt_id,
                     CheckoutAttempt.status.in_(allowed_from),
                 )
-                .values(
-                    status=new_status,
-                    updated_at=datetime.now(UTC).replace(tzinfo=None),
-                )
+                .values(**values)
             )
             return getattr(result, "rowcount", 0) == 1
 

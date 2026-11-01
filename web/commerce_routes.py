@@ -679,13 +679,16 @@ def create_commerce_blueprint(config):
         error = None
         if quote_id and cart_svc is not None:
             try:
+                actor = current_actor_id()
                 raw = _quote_to_dict(svc['storage'], quote_id) if svc.get('storage') else None
                 if raw is None:
+                    raise _err('QuoteNotFound')(quote_id)
+                if not hmac.compare_digest(str(raw.get('actor_id', '')), actor):
                     raise _err('QuoteNotFound')(quote_id)
                 quote = _quote_to_vm(raw)
                 # expiry check for display
                 try:
-                    cart_svc.validate_quote(quote_id)
+                    cart_svc.validate_quote(quote_id, actor_id=actor)
                     quote['expired'] = False
                 except _err('QuoteExpired'):
                     quote['expired'] = True
@@ -797,13 +800,19 @@ def create_commerce_blueprint(config):
         svc = _services()
         storage = svc.get('storage')
         token = request.args.get('token', '')
-        if storage is not None and token:
+        checkout = svc.get('checkout_service')
+        actor = current_actor_id()
+        if storage is not None and checkout is not None and token:
             try:
                 attempt = _fetch_attempt(storage, token)
-                if attempt:
-                    storage.set_attempt_status(attempt['attempt_id'], 'CANCELED')
-            except Exception as e:
-                logger.warning(f'/paypal/cancel state update failed: {e}')
+                if (
+                    attempt
+                    and attempt.get('paypal_order_id') == token
+                    and hmac.compare_digest(str(attempt.get('buyer_id', '')), actor)
+                ):
+                    checkout.cancel_before_capture(actor, attempt['attempt_id'], token)
+            except Exception:
+                logger.warning('/paypal/cancel could not verify checkout state')
         return redirect(url_for('commerce.cart', message='Checkout canceled.'))
 
     # -- orders ----------------------------------------------------------------

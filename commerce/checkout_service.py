@@ -23,6 +23,12 @@ from .exceptions import (
 from .policy import assert_checkout_allowed
 from .schemas import format_money, to_decimal
 from .storage import CommerceStorage
+from paypal_checkout.errors import (
+    PayPalAmbiguousError,
+    PayPalApiError,
+    PayPalAuthError,
+    PayPalTimeoutError,
+)
 
 # -- states ---------------------------------------------------------------
 
@@ -48,12 +54,23 @@ ALLOWED: dict[str, tuple[str, ...]] = {
 
 # Capture is allowed until quote expiry plus this grace window.
 CAPTURE_GRACE = timedelta(minutes=15)
+CAPTURE_OWNERSHIP_TTL = timedelta(minutes=2)
 
 TERMINAL = (FAILED, CANCELED)
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _is_ambiguous_gateway_error(exc: Exception) -> bool:
+    return isinstance(
+        exc,
+        (GatewayTimeout, TimeoutError, PayPalTimeoutError, PayPalAmbiguousError),
+    ) or (
+        isinstance(exc, PayPalApiError)
+        and (exc.status_code is None or exc.status_code >= 500)
+    )
 
 
 class GatewayTimeout(Exception):
@@ -112,8 +129,8 @@ class CheckoutService:
     # -- start_checkout ---------------------------------------------------
 
     def start_checkout(self, actor_id: str, quote_id: str, buyer_id: str) -> dict:
-        quote = self.cart_service.validate_quote(quote_id)
-        self.cart_service.refresh_check(quote_id)
+        quote = self.cart_service.validate_quote(quote_id, actor_id=actor_id)
+        self.cart_service.refresh_check(quote_id, actor_id=actor_id)
 
         request_id = self._request_id(quote_id, buyer_id)
         existing = self.storage.get_attempt(request_id=request_id)
@@ -150,15 +167,18 @@ class CheckoutService:
                 purchase_units=purchase_units,
                 request_id=request_id,
             )
-        except (GatewayTimeout, TimeoutError) as exc:
+        except Exception as exc:
+            if not _is_ambiguous_gateway_error(exc):
+                self._transition(attempt.id, ORDER_CREATED, FAILED)
+                raise CheckoutError(
+                    f"gateway create_order failed: {type(exc).__name__}"
+                ) from exc
             # Outcome unknown — the order may exist remotely.
             self._transition(attempt.id, ORDER_CREATED, REQUIRES_REVIEW)
             raise AmbiguousCheckoutError(
-                f"create_order outcome unknown for attempt {attempt.id}: {exc}"
+                f"create_order outcome unknown for attempt {attempt.id}: "
+                f"{type(exc).__name__}"
             ) from exc
-        except Exception as exc:
-            self._transition(attempt.id, ORDER_CREATED, FAILED)
-            raise CheckoutError(f"gateway create_order failed: {exc}") from exc
 
         paypal_order_id = order.get("id")
         self.storage.attach_paypal_order(attempt.id, paypal_order_id)
@@ -186,6 +206,13 @@ class CheckoutService:
             return {"attempt_id": attempt_id, "status": PAID}
         if attempt.status in TERMINAL:
             raise CheckoutError(f"attempt {attempt_id} is {attempt.status}")
+        if attempt.status in (CAPTURE_PENDING, REQUIRES_REVIEW):
+            self.reconcile(attempt_id)
+            attempt = self.storage.get_attempt(attempt_id=attempt_id)
+            if attempt.status == PAID:
+                return {"attempt_id": attempt_id, "status": PAID}
+            if attempt.status not in (AWAITING_BUYER_APPROVAL, APPROVED):
+                return {"attempt_id": attempt_id, "status": attempt.status}
 
         quote_row = self.storage.get_quote_by_pk(attempt.cart_quote_id)
         quote = self.storage.quote_to_data(quote_row)
@@ -197,12 +224,30 @@ class CheckoutService:
 
         try:
             order = self.gateway.get_order(attempt.paypal_order_id)
-        except (GatewayTimeout, TimeoutError) as exc:
+        except Exception as exc:
+            review_sources = (
+                ORDER_CREATED,
+                AWAITING_BUYER_APPROVAL,
+                APPROVED,
+                REQUIRES_REVIEW,
+            )
+            if not _is_ambiguous_gateway_error(exc):
+                if isinstance(exc, PayPalAuthError):
+                    self.storage.set_attempt_status(
+                        attempt_id, REQUIRES_REVIEW, review_sources
+                    )
+                    raise CheckoutError(
+                        "PayPal authentication failed during order lookup"
+                    ) from exc
+                raise CheckoutError(
+                    f"PayPal order lookup failed: {type(exc).__name__}"
+                ) from exc
             self.storage.set_attempt_status(
-                attempt_id, REQUIRES_REVIEW, tuple(ALLOWED) 
+                attempt_id, REQUIRES_REVIEW, review_sources
             )
             raise AmbiguousCheckoutError(
-                f"get_order outcome unknown for attempt {attempt_id}: {exc}"
+                f"get_order outcome unknown for attempt {attempt_id}: "
+                f"{type(exc).__name__}"
             ) from exc
 
         if order.get("status") != "APPROVED":
@@ -216,37 +261,54 @@ class CheckoutService:
         expected = format_money(quote.total)
         if value != expected or currency != quote.currency:
             self.storage.set_attempt_status(
-                attempt_id, REQUIRES_REVIEW, tuple(ALLOWED)
+                attempt_id,
+                REQUIRES_REVIEW,
+                (AWAITING_BUYER_APPROVAL, APPROVED, REQUIRES_REVIEW),
             )
             raise AmountMismatch(
                 f"order amount {value} {currency} != quote {expected} {quote.currency}"
             )
 
         # Single-flight: only one worker may flip into CAPTURE_PENDING.
+        capture_request_id = attempt.capture_request_id or f"capture-{attempt_id}"
         moved = self.storage.set_attempt_status(
             attempt_id,
             CAPTURE_PENDING,
-            (AWAITING_BUYER_APPROVAL, APPROVED, CAPTURE_PENDING),
+            (AWAITING_BUYER_APPROVAL, APPROVED),
+            capture_request_id=capture_request_id,
         )
         if not moved:
             current = self.storage.get_attempt(attempt_id=attempt_id)
             return {"attempt_id": attempt_id, "status": current.status}
 
-        capture_request_id = f"capture-{attempt_id}"
+        attempt = self.storage.get_attempt(attempt_id=attempt_id)
+        capture_request_id = attempt.capture_request_id
         try:
             response = self.gateway.capture_order(
                 attempt.paypal_order_id, request_id=capture_request_id
             )
-        except (GatewayTimeout, TimeoutError) as exc:
+        except Exception as exc:
+            if not _is_ambiguous_gateway_error(exc):
+                if isinstance(exc, PayPalAuthError):
+                    self.storage.set_attempt_status(
+                        attempt_id, REQUIRES_REVIEW, (CAPTURE_PENDING,)
+                    )
+                    raise CheckoutError(
+                        "PayPal authentication failed during capture"
+                    ) from exc
+                self.storage.set_attempt_status(
+                    attempt_id, FAILED, (CAPTURE_PENDING,)
+                )
+                raise CheckoutError(
+                    f"gateway capture_order failed: {type(exc).__name__}"
+                ) from exc
             self.storage.set_attempt_status(
                 attempt_id, REQUIRES_REVIEW, (CAPTURE_PENDING,)
             )
             raise AmbiguousCheckoutError(
-                f"capture outcome unknown for attempt {attempt_id}: {exc}"
+                f"capture outcome unknown for attempt {attempt_id}: "
+                f"{type(exc).__name__}"
             ) from exc
-        except Exception as exc:
-            self.storage.set_attempt_status(attempt_id, FAILED, (CAPTURE_PENDING,))
-            raise CheckoutError(f"gateway capture_order failed: {exc}") from exc
 
         captures = self._captures_from_order(response)
         completed = next(
@@ -292,6 +354,35 @@ class CheckoutService:
             "capture_id": capture_id,
         }
 
+    def cancel_before_capture(
+        self, buyer_id: str, attempt_id: int, paypal_order_id: str
+    ) -> bool:
+        """Cancel only the owning buyer's matching, uncaptured PayPal order."""
+        attempt = self.storage.get_attempt(attempt_id=attempt_id)
+        eligible = (ORDER_CREATED, AWAITING_BUYER_APPROVAL, APPROVED)
+        if (
+            attempt is None
+            or attempt.buyer_id != buyer_id
+            or attempt.paypal_order_id != paypal_order_id
+            or attempt.status not in eligible
+        ):
+            return False
+
+        try:
+            order = self.gateway.get_order(paypal_order_id)
+        except Exception:
+            return False
+        if (
+            order.get("id") != paypal_order_id
+            or order.get("status") not in {"CREATED", "APPROVED"}
+            or self._captures_from_order(order)
+        ):
+            return False
+
+        return self.storage.set_attempt_status(
+            attempt_id, CANCELED, eligible
+        )
+
     # -- reconcile ----------------------------------------------------------
 
     def reconcile(self, attempt_id: int) -> dict:
@@ -302,12 +393,24 @@ class CheckoutService:
         order = self.gateway.get_order(attempt.paypal_order_id)
         remote_status = order.get("status")
 
+        if order.get("id") != attempt.paypal_order_id:
+            return {"attempt_id": attempt_id, "status": REQUIRES_REVIEW}
+
+        quote = self.storage.quote_to_data(
+            self.storage.get_quote_by_pk(attempt.cart_quote_id)
+        )
+        value, currency = self._order_amount(order)
+        if value != format_money(quote.total) or currency != quote.currency:
+            self.storage.set_attempt_status(
+                attempt_id,
+                REQUIRES_REVIEW,
+                (ORDER_CREATED, AWAITING_BUYER_APPROVAL, APPROVED, REQUIRES_REVIEW),
+            )
+            return {"attempt_id": attempt_id, "status": REQUIRES_REVIEW}
+
         captures = self._captures_from_order(order)
         completed = next((c for c in captures if c.get("status") == "COMPLETED"), None)
         if completed is not None:
-            quote = self.storage.quote_to_data(
-                self.storage.get_quote_by_pk(attempt.cart_quote_id)
-            )
             cap_amount = (completed.get("amount") or {})
             value = str(cap_amount.get("value", ""))
             currency = str(cap_amount.get("currency_code", ""))
@@ -325,15 +428,46 @@ class CheckoutService:
                         )
                     except DuplicateCapture:
                         pass
-                self.storage.set_attempt_status(attempt_id, PAID, tuple(ALLOWED))
+                self.storage.set_attempt_status(
+                    attempt_id,
+                    PAID,
+                    (ORDER_CREATED, AWAITING_BUYER_APPROVAL, APPROVED,
+                     CAPTURE_PENDING, REQUIRES_REVIEW),
+                )
                 self.storage.update_quote_status(quote.quote_id, "PAID")
                 return {"attempt_id": attempt_id, "status": PAID, "capture_id": capture_id}
 
+        if any(capture.get("status") == "PENDING" for capture in captures):
+            return {"attempt_id": attempt_id, "status": CAPTURE_PENDING}
+
         if remote_status == "APPROVED":
-            self.storage.set_attempt_status(
-                attempt_id, AWAITING_BUYER_APPROVAL, tuple(ALLOWED)
-            )
-            return {"attempt_id": attempt_id, "status": AWAITING_BUYER_APPROVAL}
+            current_state = attempt.status
+            if current_state in (CAPTURE_PENDING, REQUIRES_REVIEW):
+                updated_at = attempt.updated_at
+                if updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=UTC)
+                ownership_is_fresh = (
+                    attempt.capture_request_id is not None
+                    and self.clock() - updated_at < CAPTURE_OWNERSHIP_TTL
+                )
+                if ownership_is_fresh:
+                    return {"attempt_id": attempt_id, "status": current_state}
+                changed = self.storage.set_attempt_status(
+                    attempt_id, AWAITING_BUYER_APPROVAL, (current_state,)
+                )
+                if not changed:
+                    attempt = self.storage.get_attempt(attempt_id=attempt_id)
+                    return {"attempt_id": attempt_id, "status": attempt.status}
+            elif current_state == ORDER_CREATED:
+                self.storage.set_attempt_status(
+                    attempt_id, AWAITING_BUYER_APPROVAL, (ORDER_CREATED,)
+                )
+            elif current_state not in (AWAITING_BUYER_APPROVAL, APPROVED):
+                return {"attempt_id": attempt_id, "status": current_state}
+            return {
+                "attempt_id": attempt_id,
+                "status": AWAITING_BUYER_APPROVAL,
+            }
         return {"attempt_id": attempt_id, "status": attempt.status}
 
     # -- status view --------------------------------------------------------
