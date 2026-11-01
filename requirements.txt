@@ -6,6 +6,7 @@ beautifulsoup4
 click
 flask
 gunicorn
+httpx
 itsdangerous
 jinja2
 lxml
