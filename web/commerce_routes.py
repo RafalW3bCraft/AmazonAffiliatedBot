@@ -265,22 +265,57 @@ def _build_services(config):
             catalog = None
     ext['catalog'] = catalog
 
-    # Storage lane
+    # Storage lane. Payment records must be durable: when checkout is possible
+    # (PayPal creds configured and merchant checkout enabled) a storage failure
+    # disables checkout entirely rather than falling back to process-local
+    # memory. In-memory storage is permitted ONLY when checkout can never run
+    # (DEMO_MODE, checkout disabled, or no PayPal credentials) so the demo UI
+    # and deterministic-AI pages still work offline.
     storage = getattr(app, 'commerce_storage', None)
     if storage is None:
+        checkout_configured = bool(
+            getattr(config, 'ENABLE_MERCHANT_CHECKOUT', True)
+            and getattr(config, 'PAYPAL_CLIENT_ID', '')
+            and getattr(config, 'PAYPAL_CLIENT_SECRET', '')
+            and not getattr(config, 'DEMO_MODE', False)
+        )
         try:
             from commerce.storage import CommerceStorage  # type: ignore
             storage = CommerceStorage(config.COMMERCE_DATABASE_URL)
             logger.info('DealPilot: commerce.storage.CommerceStorage ready')
         except Exception as e:
-            logger.warning(f'DealPilot: commerce.storage unavailable ({e}); using in-memory storage')
-            from web.catalog_data import InMemoryCommerceStorage
-            storage = InMemoryCommerceStorage(config.COMMERCE_DATABASE_URL)
-        try:
-            app.commerce_storage = storage
-        except Exception:
-            pass
+            if checkout_configured:
+                logger.error(
+                    f'DealPilot: durable storage unavailable ({e}) and checkout '
+                    'is configured - REFUSING in-memory payment storage; '
+                    'checkout lane disabled (catalog/AI lanes unaffected)'
+                )
+                storage = None
+            else:
+                logger.warning(
+                    f'DealPilot: commerce.storage unavailable ({e}); using '
+                    'in-memory storage (checkout not configured, demo only)'
+                )
+                from web.catalog_data import InMemoryCommerceStorage
+                storage = InMemoryCommerceStorage(config.COMMERCE_DATABASE_URL)
+        if storage is not None:
+            try:
+                app.commerce_storage = storage
+            except Exception:
+                pass
     ext['storage'] = storage
+    # Durability gate: payment records must never live in process memory when
+    # checkout is possible. In-memory storage is acceptable only while checkout
+    # is unconfigured (demo/catalog browsing). Detect it structurally so this
+    # holds regardless of which storage class was imported.
+    if storage is not None:
+        from web.catalog_data import InMemoryCommerceStorage as _IM
+        if isinstance(storage, _IM):
+            ext['storage_durable'] = False
+        else:
+            ext['storage_durable'] = True
+    else:
+        ext['storage_durable'] = False
 
     if catalog is not None and storage is not None:
         try:
@@ -345,7 +380,18 @@ def _build_services(config):
     ext['token_getter'] = _token_getter
 
     checkout_service = None
-    if storage is not None and ext['cart_service'] is not None and paypal_client is not None:
+    # Payment-critical gate: checkout runs ONLY on durable storage. If storage
+    # is in-memory (or missing) while PayPal is configured, refuse to build the
+    # checkout service — /checkout/start will return 503 instead of recording
+    # payment state in process memory.
+    if not ext.get('storage_durable', False):
+        if paypal_client is not None:
+            logger.error(
+                'DealPilot: PayPal is configured but storage is not durable - '
+                'checkout lane disabled (set COMMERCE_DATABASE_URL to a '
+                'persistent postgresql:// or sqlite:/// URL)'
+            )
+    elif ext['cart_service'] is not None and paypal_client is not None:
         try:
             from commerce.checkout_service import CheckoutService  # type: ignore
             checkout_service = CheckoutService(storage, ext['cart_service'], paypal_client, config)
